@@ -55,8 +55,6 @@ if status.stdout.strip():
 else:
 
     print("Nothing to commit.")
-
-
 if FORCE:
     run([
         "git",

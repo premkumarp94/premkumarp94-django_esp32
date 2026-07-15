@@ -1,12 +1,26 @@
+from pathlib import Path
+from datetime import datetime
 import subprocess
 import sys
 
+PREFIX = Path.cwd().name.upper()
 
-def run(command):
-    print("> " + " ".join(command))
+COMMIT_MESSAGE = (
+    f"{PREFIX}_"
+    f"{datetime.now():%Y_%m_%d_%H_%M_%S}"
+)
+
+FORCE = (
+    len(sys.argv) > 1 and
+    sys.argv[1].lower() == "force"
+)
+
+
+def run(cmd):
+    print("> " + " ".join(cmd))
 
     result = subprocess.run(
-        command,
+        cmd,
         text=True,
         capture_output=True
     )
@@ -21,6 +35,38 @@ def run(command):
         sys.exit(result.returncode)
 
 
-run(["git", "push"])
+status = subprocess.run(
+    ["git", "status", "--porcelain"],
+    capture_output=True,
+    text=True
+)
 
-print("\nPush completed successfully.")
+if status.stdout.strip():
+
+    run(["git", "add", "."])
+
+    run([
+        "git",
+        "commit",
+        "-m",
+        COMMIT_MESSAGE
+    ])
+
+else:
+
+    print("Nothing to commit.")
+
+
+if FORCE:
+    run([
+        "git",
+        "push",
+        "--force"
+    ])
+else:
+    run([
+        "git",
+        "push"
+    ])
+
+print("\nDone.")

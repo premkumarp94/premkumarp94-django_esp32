@@ -3,17 +3,18 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from api.models import TelemetryReading, DeviceCommand, DeviceLog
 
-# Simple in-memory counter to simulate commands periodically
+# Simple in-memory counter to prune old records periodically
 request_counter = 0
 
 @csrf_exempt
 def telemetry(request):
+    global request_counter
     if request.method == 'POST':
         try:
             # Decode the incoming JSON payload
             data = json.loads(request.body)
             
-            # Extract data points based on new format
+            # Extract data points based on format
             device_id = data.get("id", "unknown")
             sensor_values = data.get("sensor values", {})
             temperature = sensor_values.get("temperature")
@@ -32,6 +33,16 @@ def telemetry(request):
                     water_level=float(water_level) if water_level is not None else None,
                     motor_status=motor_status
                 )
+
+            # Auto-prune old readings every 50 requests to keep SQLite table small & fast
+            request_counter += 1
+            if request_counter % 50 == 0:
+                try:
+                    excess_ids = list(TelemetryReading.objects.values_list('id', flat=True).order_by('-timestamp')[300:])
+                    if excess_ids:
+                        TelemetryReading.objects.filter(id__in=excess_ids).delete()
+                except Exception as prune_err:
+                    print(f"Telemetry pruning warning: {prune_err}")
 
             # Save transition log if a valid message is sent by device
             if message and message not in ["none", "", "device_normal_operation"]:
@@ -90,4 +101,5 @@ def telemetry(request):
         "status": "error",
         "message": "Only POST requests are allowed"
     }, status=405)
+
 

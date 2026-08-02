@@ -1,0 +1,183 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+
+const char* ssid = "TIC_5G-PREM";
+const char* password = "prem@123";
+
+// Candidate server URLs: Local IPs first (8000), fallback to PythonAnywhere (HTTPS)
+const char* candidateUrls[] = {
+  "http://192.168.1.1:8000/api/telemetry/",
+  "http://192.168.1.2:8000/api/telemetry/",
+  "http://192.168.1.3:8000/api/telemetry/",
+  "http://192.168.1.4:8000/api/telemetry/",
+  "http://192.168.1.5:8000/api/telemetry/",
+  "https://premkumarp94.pythonanywhere.com/api/telemetry/"
+};
+const int numCandidates = 6;
+
+String activeServerUrl = "";
+String deviceId = "esp32_device_01";
+String motorStatus = "stopped";
+String pendingDeviceMsg = "esp32 booted normally";
+int iterationCount = 0;
+
+// Helper function to send POST requests supporting both HTTP and HTTPS
+int sendPostRequest(const String& url, const String& body, String& responseOut) {
+  HTTPClient http;
+  int httpCode = -1;
+
+  if (url.startsWith("https://")) {
+    WiFiClientSecure client;
+    client.setInsecure(); // Disable SSL certificate verification for HTTPS (PythonAnywhere)
+    if (http.begin(client, url)) {
+      http.addHeader("Content-Type", "application/json");
+      http.setTimeout(5000);
+      httpCode = http.POST(body);
+      if (httpCode > 0) {
+        responseOut = http.getString();
+      }
+      http.end();
+    }
+  } else {
+    WiFiClient client;
+    if (http.begin(client, url)) {
+      http.addHeader("Content-Type", "application/json");
+      http.setTimeout(3000);
+      httpCode = http.POST(body);
+      if (httpCode > 0) {
+        responseOut = http.getString();
+      }
+      http.end();
+    }
+  }
+  return httpCode;
+}
+
+// Probing candidate servers to auto-select working endpoint
+String findWorkingServerUrl() {
+  Serial.println("\n[Connection Manager] Probing servers...");
+  StaticJsonDocument<128> pingDoc;
+  pingDoc["id"] = deviceId;
+  pingDoc["message"] = "ping";
+  String pingBody;
+  serializeJson(pingDoc, pingBody);
+
+  for (int i = 0; i < numCandidates; i++) {
+    String url = candidateUrls[i];
+    Serial.print("  - Probing ");
+    Serial.print(url);
+    Serial.print(" ... ");
+
+    String respStr;
+    int code = sendPostRequest(url, pingBody, respStr);
+
+    if (code == 200) {
+      Serial.println("CONNECTED!");
+      return url;
+    } else {
+      Serial.print("Failed (HTTP ");
+      Serial.print(code);
+      Serial.println(")");
+    }
+  }
+
+  String fallback = "https://premkumarp94.pythonanywhere.com/api/telemetry/";
+  Serial.print("  => Defaulting to fallback: ");
+  Serial.println(fallback);
+  return fallback;
+}
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi Connected");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  randomSeed(micros());
+
+  // Auto-discover active server on startup
+  activeServerUrl = findWorkingServerUrl();
+  Serial.print("Active Server URL: ");
+  Serial.println(activeServerUrl);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi Disconnected. Reconnecting...");
+    WiFi.begin(ssid, password);
+    delay(2000);
+    return;
+  }
+
+  float temperature = random(220, 281) / 10.0;
+  float humidity = random(450, 551) / 10.0;
+
+  DynamicJsonDocument doc(512);
+  doc["id"] = deviceId;
+
+  JsonObject sensor = doc.createNestedObject("sensor values");
+  sensor["temperature"] = temperature;
+  sensor["humidity"] = humidity;
+  sensor["motor_status"] = motorStatus;
+
+  doc["ack"] = "dummy_ack";
+  doc["message"] = pendingDeviceMsg;
+  pendingDeviceMsg = "";
+
+  String requestBody;
+  serializeJson(doc, requestBody);
+
+  Serial.println();
+  Serial.print("Sending JSON to ");
+  Serial.println(activeServerUrl);
+  Serial.println(requestBody);
+
+  String response;
+  int httpCode = sendPostRequest(activeServerUrl, requestBody, response);
+
+  if (httpCode == 200) {
+    Serial.println("Response:");
+    Serial.println(response);
+
+    DynamicJsonDocument resp(512);
+    DeserializationError err = deserializeJson(resp, response);
+
+    if (!err) {
+      String command = resp["command"] | "";
+
+      if (command == "start_motor") {
+        motorStatus = "started";
+        pendingDeviceMsg = "Motor started successfully.";
+        Serial.println("Action: Motor Started");
+      } else if (command == "stop_motor") {
+        motorStatus = "stopped";
+        pendingDeviceMsg = "Motor stopped successfully.";
+        Serial.println("Action: Motor Stopped");
+      } else {
+        Serial.println("No Command");
+      }
+    }
+  } else {
+    Serial.print("HTTP Error: ");
+    Serial.println(httpCode);
+    Serial.println("Server failed. Rediscovering...");
+    activeServerUrl = findWorkingServerUrl();
+  }
+
+  if (iterationCount == 0) {
+    pendingDeviceMsg = "came to first iteration";
+  }
+  iterationCount++;
+
+  delay(10000);
+}

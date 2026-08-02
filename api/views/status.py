@@ -5,8 +5,9 @@ from api.models import TelemetryReading, DeviceLog
 
 def status(request):
     try:
-        # Fetch distinct device IDs from DB
-        device_ids = list(TelemetryReading.objects.values_list('device_id', flat=True).distinct())
+        # Fetch device IDs from top 50 recent readings (fast indexed slice, no full table scan)
+        recent_devs = TelemetryReading.objects.order_by('-timestamp')[:50].values_list('device_id', flat=True)
+        device_ids = list(dict.fromkeys(recent_devs))
     except Exception:
         device_ids = []
     
@@ -15,6 +16,7 @@ def status(request):
     for dev in default_devices:
         if dev not in device_ids:
             device_ids.append(dev)
+
             
     devices_data = {}
     for dev_id in device_ids:

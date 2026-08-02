@@ -1,10 +1,14 @@
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.db import OperationalError
 from api.models import TelemetryReading, DeviceLog
 
 def status(request):
-    # Fetch distinct device IDs from DB
-    device_ids = list(TelemetryReading.objects.values_list('device_id', flat=True).distinct())
+    try:
+        # Fetch distinct device IDs from DB
+        device_ids = list(TelemetryReading.objects.values_list('device_id', flat=True).distinct())
+    except Exception:
+        device_ids = []
     
     # Ensure standard simulator devices exist in dictionary
     default_devices = ["esp32_device_01", "esp32_gear_motor_02"]
@@ -14,7 +18,11 @@ def status(request):
             
     devices_data = {}
     for dev_id in device_ids:
-        reading = TelemetryReading.objects.filter(device_id=dev_id).order_by('-timestamp').first()
+        try:
+            reading = TelemetryReading.objects.filter(device_id=dev_id).order_by('-timestamp').first()
+        except Exception:
+            reading = None
+
         if reading:
             devices_data[dev_id] = {
                 "has_data": True,
@@ -37,8 +45,11 @@ def status(request):
             }
 
     # Fetch recent logs across devices
-    latest_logs = list(DeviceLog.objects.order_by('-timestamp')[:15])
-    latest_logs.reverse()
+    try:
+        latest_logs = list(DeviceLog.objects.order_by('-timestamp')[:15])
+        latest_logs.reverse()
+    except Exception:
+        latest_logs = []
     
     logs_data = [
         {
@@ -52,7 +63,10 @@ def status(request):
     format_param = request.GET.get('format', '')
     accept_header = request.META.get('HTTP_ACCEPT', '')
 
-    overall_latest = TelemetryReading.objects.order_by('-timestamp').first()
+    try:
+        overall_latest = TelemetryReading.objects.order_by('-timestamp').first()
+    except Exception:
+        overall_latest = None
 
     if 'text/html' in accept_header and format_param != 'json':
         context = {
@@ -76,3 +90,4 @@ def status(request):
         "motor_status": overall_latest.motor_status if overall_latest else "stopped",
         "timestamp": overall_latest.timestamp.strftime('%Y-%m-%d %H:%M:%S') if overall_latest else None,
     })
+

@@ -3,11 +3,24 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
+//===================== WIFI =====================
 const char* ssid = "TIC_5G-PREM";
 const char* password = "prem@123";
 
-// Candidate server URLs: Local IPs first (8000), fallback to PythonAnywhere (HTTPS)
-const char* candidateUrls[] = {
+//===================== DEVICE ===================
+String deviceId = "esp32_device_01";
+String motorStatus = "stopped";
+String pendingDeviceMsg = "esp32 booted normally";
+int iterationCount = 0;
+
+//===================== PROBES ===================
+const int COMMON_PIN = 23;
+const int LOW_PIN    = 21;
+const int MID_PIN    = 19;
+const int FULL_PIN   = 18;
+
+//===================== SERVER LIST ==============
+String serverList[] = {
   "http://192.168.1.1:8000/api/telemetry/",
   "http://192.168.1.2:8000/api/telemetry/",
   "http://192.168.1.3:8000/api/telemetry/",
@@ -15,169 +28,195 @@ const char* candidateUrls[] = {
   "http://192.168.1.5:8000/api/telemetry/",
   "https://premkumarp94.pythonanywhere.com/api/telemetry/"
 };
-const int numCandidates = 6;
 
-String activeServerUrl = "";
-String deviceId = "esp32_device_01";
-String motorStatus = "stopped";
-String pendingDeviceMsg = "esp32 booted normally";
-int iterationCount = 0;
+const int SERVER_COUNT = sizeof(serverList) / sizeof(serverList[0]);
+int activeServer = -1;
 
-// Helper function to send POST requests supporting both HTTP and HTTPS
-int sendPostRequest(const String& url, const String& body, String& responseOut) {
-  HTTPClient http;
-  int httpCode = -1;
+//------------------------------------------------
+void connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
 
-  if (url.startsWith("https://")) {
-    WiFiClientSecure client;
-    client.setInsecure(); // Disable SSL certificate verification for HTTPS (PythonAnywhere)
-    if (http.begin(client, url)) {
-      http.addHeader("Content-Type", "application/json");
-      http.setTimeout(5000);
-      httpCode = http.POST(body);
-      if (httpCode > 0) {
-        responseOut = http.getString();
-      }
-      http.end();
-    }
-  } else {
-    WiFiClient client;
-    if (http.begin(client, url)) {
-      http.addHeader("Content-Type", "application/json");
-      http.setTimeout(3000);
-      httpCode = http.POST(body);
-      if (httpCode > 0) {
-        responseOut = http.getString();
-      }
-      http.end();
-    }
-  }
-  return httpCode;
-}
-
-// Probing candidate servers to auto-select working endpoint
-String findWorkingServerUrl() {
-  Serial.println("\n[Connection Manager] Probing servers...");
-  StaticJsonDocument<128> pingDoc;
-  pingDoc["id"] = deviceId;
-  pingDoc["message"] = "ping";
-  String pingBody;
-  serializeJson(pingDoc, pingBody);
-
-  for (int i = 0; i < numCandidates; i++) {
-    String url = candidateUrls[i];
-    Serial.print("  - Probing ");
-    Serial.print(url);
-    Serial.print(" ... ");
-
-    String respStr;
-    int code = sendPostRequest(url, pingBody, respStr);
-
-    if (code == 200) {
-      Serial.println("CONNECTED!");
-      return url;
-    } else {
-      Serial.print("Failed (HTTP ");
-      Serial.print(code);
-      Serial.println(")");
-    }
-  }
-
-  String fallback = "https://premkumarp94.pythonanywhere.com/api/telemetry/";
-  Serial.print("  => Defaulting to fallback: ");
-  Serial.println(fallback);
-  return fallback;
-}
-
-void setup() {
-  Serial.begin(115200);
+  Serial.print("Connecting WiFi");
   WiFi.begin(ssid, password);
 
-  Serial.print("Connecting to Wi-Fi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
 
-  Serial.println("\nWiFi Connected");
-  Serial.print("IP Address: ");
+  Serial.println();
+  Serial.print("Connected. IP : ");
   Serial.println(WiFi.localIP());
-
-  randomSeed(micros());
-
-  // Auto-discover active server on startup
-  activeServerUrl = findWorkingServerUrl();
-  Serial.print("Active Server URL: ");
-  Serial.println(activeServerUrl);
 }
 
-void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi Disconnected. Reconnecting...");
-    WiFi.begin(ssid, password);
-    delay(2000);
-    return;
+//------------------------------------------------
+int readWaterLevel() {
+  digitalWrite(COMMON_PIN, HIGH);
+  delay(20);
+
+  bool low = digitalRead(LOW_PIN);
+  bool mid = digitalRead(MID_PIN);
+  bool full = digitalRead(FULL_PIN);
+
+  digitalWrite(COMMON_PIN, LOW);
+
+  Serial.printf("LOW=%d MID=%d FULL=%d\n", low, mid, full);
+
+  if (full) return 100;
+  if (mid)  return 66;
+  if (low)  return 33;
+  return 0;
+}
+
+//------------------------------------------------
+bool postJson(String url, String body, String &responseOut) {
+  HTTPClient http;
+  int code = -1;
+
+  if (url.startsWith("https://")) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    if (http.begin(client, url)) {
+      http.addHeader("Content-Type", "application/json");
+      http.setTimeout(5000);
+      code = http.POST(body);
+      if (code > 0) {
+        responseOut = http.getString();
+      }
+      http.end();
+    }
+  } else {
+    if (http.begin(url)) {
+      http.addHeader("Content-Type", "application/json");
+      http.setTimeout(3000);
+      code = http.POST(body);
+      if (code > 0) {
+        responseOut = http.getString();
+      }
+      http.end();
+    }
   }
 
-  float temperature = random(220, 281) / 10.0;
-  float humidity = random(450, 551) / 10.0;
+  return (code == 200);
+}
+
+//------------------------------------------------
+bool discoverServer() {
+  Serial.println("\nSearching for server...");
+
+  for (int i = 0; i < SERVER_COUNT; i++) {
+    StaticJsonDocument<128> doc;
+    doc["id"] = deviceId;
+    doc["message"] = "ping";
+
+    String body;
+    serializeJson(doc, body);
+
+    String resp;
+
+    Serial.print("Trying ");
+    Serial.println(serverList[i]);
+
+    if (postJson(serverList[i], body, resp)) {
+      activeServer = i;
+      Serial.print("Using ");
+      Serial.println(serverList[i]);
+      return true;
+    }
+  }
+
+  activeServer = -1;
+  return false;
+}
+
+//------------------------------------------------
+bool sendTelemetry(String ack, String msg) {
+  if (activeServer == -1) {
+    if (!discoverServer()) return false;
+  }
 
   DynamicJsonDocument doc(512);
+
   doc["id"] = deviceId;
 
   JsonObject sensor = doc.createNestedObject("sensor values");
-  sensor["temperature"] = temperature;
-  sensor["humidity"] = humidity;
+  sensor["water_level"] = readWaterLevel();
   sensor["motor_status"] = motorStatus;
 
-  doc["ack"] = "dummy_ack";
-  doc["message"] = pendingDeviceMsg;
-  pendingDeviceMsg = "";
+  doc["ack"] = ack;
+  doc["message"] = msg;
 
-  String requestBody;
-  serializeJson(doc, requestBody);
+  String body;
+  serializeJson(doc, body);
 
-  Serial.println();
-  Serial.print("Sending JSON to ");
-  Serial.println(activeServerUrl);
-  Serial.println(requestBody);
+  Serial.println("\nSending:");
+  Serial.println(body);
 
   String response;
-  int httpCode = sendPostRequest(activeServerUrl, requestBody, response);
 
-  if (httpCode == 200) {
-    Serial.println("Response:");
-    Serial.println(response);
-
-    DynamicJsonDocument resp(512);
-    DeserializationError err = deserializeJson(resp, response);
-
-    if (!err) {
-      String command = resp["command"] | "";
-
-      if (command == "start_motor") {
-        motorStatus = "started";
-        pendingDeviceMsg = "Motor started successfully.";
-        Serial.println("Action: Motor Started");
-      } else if (command == "stop_motor") {
-        motorStatus = "stopped";
-        pendingDeviceMsg = "Motor stopped successfully.";
-        Serial.println("Action: Motor Stopped");
-      } else {
-        Serial.println("No Command");
-      }
-    }
-  } else {
-    Serial.print("HTTP Error: ");
-    Serial.println(httpCode);
+  if (!postJson(serverList[activeServer], body, response)) {
     Serial.println("Server failed. Rediscovering...");
-    activeServerUrl = findWorkingServerUrl();
+    activeServer = -1;
+    return false;
   }
 
-  if (iterationCount == 0) {
-    pendingDeviceMsg = "came to first iteration";
+  Serial.println("Response:");
+  Serial.println(response);
+
+  DynamicJsonDocument resp(512);
+
+  if (deserializeJson(resp, response) == DeserializationError::Ok) {
+    String cmd = resp["command"] | "";
+
+    if (cmd == "start_motor") {
+      motorStatus = "started";
+      pendingDeviceMsg = "Motor started successfully.";
+      Serial.println("START command");
+      sendTelemetry("cmd_executed_ack", pendingDeviceMsg);
+      pendingDeviceMsg = "";
+    } else if (cmd == "stop_motor") {
+      motorStatus = "stopped";
+      pendingDeviceMsg = "Motor stopped successfully.";
+      Serial.println("STOP command");
+      sendTelemetry("cmd_executed_ack", pendingDeviceMsg);
+      pendingDeviceMsg = "";
+    } else {
+      Serial.println("No command");
+    }
   }
+
+  return true;
+}
+
+//------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(COMMON_PIN, OUTPUT);
+  digitalWrite(COMMON_PIN, LOW);
+
+  pinMode(LOW_PIN, INPUT_PULLDOWN);
+  pinMode(MID_PIN, INPUT_PULLDOWN);
+  pinMode(FULL_PIN, INPUT_PULLDOWN);
+
+  connectWiFi();
+  discoverServer();
+}
+
+//------------------------------------------------
+void loop() {
+  connectWiFi();
+
+  sendTelemetry("dummy_ack", pendingDeviceMsg);
+
+  pendingDeviceMsg = "";
+
+  if (iterationCount == 0)
+    pendingDeviceMsg = "came to first iteration";
+
   iterationCount++;
 
-  delay(10000);
+  delay(2000);
 }
+
+

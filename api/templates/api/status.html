@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32 Multi-Device Command & Telemetry Center</title>
+    
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #08090d;
+            --card-bg: rgba(255, 255, 255, 0.035);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --card-hover-border: rgba(255, 255, 255, 0.18);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-temp: linear-gradient(135deg, #ff6b6b, #ff8e53);
+            --accent-humidity: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            --accent-green: #10b981;
+            --accent-front: linear-gradient(135deg, #10b981, #059669);
+            --accent-back: linear-gradient(135deg, #8b5cf6, #6366f1);
+            --accent-stopped: linear-gradient(135deg, #64748b, #475569);
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.07) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(139, 92, 246, 0.07) 0%, transparent 45%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 20px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 960px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Header Section */
+        header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #ffffff 30%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Dual Grid for Devices */
+        .devices-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        @media (min-width: 768px) {
+            .devices-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        /* Glassmorphic Device Card */
+        .device-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            transition: border-color var(--transition-speed), transform var(--transition-speed);
+            position: relative;
+        }
+
+        .device-card:hover {
+            border-color: var(--card-hover-border);
+            transform: translateY(-2px);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 14px;
+        }
+
+        .device-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .device-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .device-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+            letter-spacing: 0.04em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: pulse 2s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            100% { transform: scale(1.15); opacity: 1; }
+        }
+
+        /* Readings Layout */
+        .readings-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .reading-box {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .reading-box.full-width {
+            grid-column: span 2;
+        }
+
+        .reading-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+        }
+
+        .reading-box.temp::before { background: var(--accent-temp); }
+        .reading-box.humidity::before { background: var(--accent-humidity); }
+        .reading-box.water-level::before { background: var(--accent-humidity); }
+        .reading-box.motor-state::before { background: var(--accent-stopped); }
+        .reading-box.motor-state.running::before { background: var(--accent-front); }
+        .reading-box.motor-state.front-dir::before { background: var(--accent-front); }
+        .reading-box.motor-state.back-dir::before { background: var(--accent-back); }
+
+        .reading-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .reading-icon {
+            width: 20px;
+            height: 20px;
+            opacity: 0.85;
+        }
+
+        .reading-box.running .reading-icon,
+        .reading-box.front-dir .reading-icon,
+        .reading-box.back-dir .reading-icon {
+            animation: spin 2.5s linear infinite;
+        }
+
+        .reading-box.back-dir .reading-icon {
+            animation-direction: reverse;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .reading-val {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.0rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .reading-box.temp .reading-val {
+            background: var(--accent-temp);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .reading-box.humidity .reading-val {
+            background: var(--accent-humidity);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .reading-box.water-level .reading-val {
+            background: var(--accent-humidity);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 1.3rem;
+            font-weight: 800;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .status-pill.stopped { color: #94a3b8; }
+        .status-pill.running, .status-pill.front {
+            background: var(--accent-front);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .status-pill.back {
+            background: var(--accent-back);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Control Action Buttons */
+        .controls-grid {
+            display: grid;
+            gap: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 16px;
+        }
+
+        .controls-grid.two-col {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .controls-grid.three-col {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        .btn-action {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 0.82rem;
+            padding: 12px 10px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all var(--transition-speed) ease;
+            outline: none;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            color: #ffffff;
+        }
+
+        .btn-action:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-action:active {
+            transform: translateY(1px);
+        }
+
+        .btn-start, .btn-front {
+            background: linear-gradient(135deg, #10b981, #059669);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+        }
+
+        .btn-back {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
+        }
+
+        .btn-stop {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-stop:hover {
+            background: rgba(239, 68, 68, 0.22);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+
+        /* Card Footer */
+        .btn-servo {
+            background: linear-gradient(135deg, #0284c7, #2563eb);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+            width: 100%;
+        }
+
+        .servo-inputs-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 14px;
+            margin-top: 4px;
+        }
+
+        .servo-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+
+        .servo-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .servo-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .servo-field label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .servo-field input {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 600;
+            outline: none;
+            width: 100%;
+        }
+
+        .servo-field input:focus {
+            border-color: #38bdf8;
+        }
+
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 14px;
+        }
+
+        .timestamp-text {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Logs Container */
+        .logs-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 12px;
+        }
+
+        .logs-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-primary);
+        }
+
+        .logs-terminal {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.82rem;
+            max-height: 180px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+        }
+
+        .log-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            line-height: 1.4;
+        }
+
+        .log-time { color: #6366f1; flex-shrink: 0; }
+        .log-dev {
+            color: #38bdf8;
+            font-weight: 600;
+            background: rgba(56, 189, 248, 0.1);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+        .log-msg { color: #cbd5e1; word-break: break-all; }
+        .log-line.started .log-msg, .log-line.front .log-msg { color: #34d399; }
+        .log-line.back .log-msg { color: #a78bfa; }
+        .log-line.stopped .log-msg { color: #f87171; }
+
+        .no-logs {
+            color: var(--text-secondary);
+            font-style: italic;
+            text-align: center;
+            padding: 12px 0;
+        }
+
+        /* Toast notifications */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(8px);
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .toast-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #38bdf8;
+            border-radius: 50%;
+        }
+
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all var(--transition-speed) ease;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .refresh-btn.spinning svg {
+            animation: spin 0.8s linear infinite;
+        }
+
+        .refresh-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>ESP32 Control Dashboard</h1>
+        <div class="subtitle">Multi-Client Telemetry & Gear Motor Web Controller</div>
+    </header>
+
+    <!-- Devices Grid -->
+    <div class="devices-grid">
+        
+        <!-- CARD 1: ESP32 Water Level & Fan Device (esp32_device_01) -->
+        <div class="device-card" id="card-esp32_device_01">
+            <div class="card-header">
+                <div class="device-title">
+                    <span class="status-dot"></span>
+                    <span class="device-name">Water Level & Fan Simulator</span>
+                </div>
+                <span class="device-badge" id="badge-esp32_device_01">esp32_device_01</span>
+            </div>
+
+            <div class="readings-container">
+                <!-- Water Level -->
+                <div class="reading-box water-level full-width">
+                    <div class="reading-label">
+                        <span>Water Level</span>
+                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="reading-val" id="water-esp32_device_01">
+                        {% if device_01.water_level != None %}{{ device_01.water_level|floatformat:0 }}%{% else %}--{% endif %}
+                    </div>
+                </div>
+
+                <!-- Fan Motor Status -->
+                <div class="reading-box full-width motor-state {% if device_01.motor_status == 'started' %}running{% endif %}" id="motor-box-esp32_device_01">
+                    <div class="reading-label">
+                        <span>Fan Motor Status</span>
+                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="1"></circle>
+                            <path d="M12 12c0-3 2.5-5.5 5.5-5.5S23 9 23 12c0 3-2.5 5.5-5.5 5.5S12 15 12 12z"></path>
+                            <path d="M12 12c3 0 5.5 2.5 5.5 5.5S15 23 12 23c-3 0-5.5-2.5-5.5-5.5S9 12 12 12z"></path>
+                        </svg>
+                    </div>
+                    <div class="status-pill {% if device_01.motor_status == 'started' %}running{% else %}stopped{% endif %}" id="motor-val-esp32_device_01">
+                        {% if device_01.motor_status == 'started' %}RUNNING{% else %}STOPPED{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls-grid two-col">
+                <button class="btn-action btn-start" onclick="sendDeviceCommand('esp32_device_01', 'start_motor')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                        <line x1="12" y1="2" x2="12" y2="12"></line>
+                    </svg>
+                    Start Motor
+                </button>
+                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp32_device_01', 'stop_motor')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    </svg>
+                    Stop Motor
+                </button>
+            </div>
+
+            <div class="card-footer">
+                <span>Last payload:</span>
+                <span class="timestamp-text" id="time-esp32_device_01">{{ device_01.timestamp }}</span>
+            </div>
+        </div>
+
+
+        <!-- CARD 2: ESP32 Gear Motor Client (esp32_gear_motor_02) -->
+        <div class="device-card" id="card-esp32_gear_motor_02">
+            <div class="card-header">
+                <div class="device-title">
+                    <span class="status-dot"></span>
+                    <span class="device-name">Gear Motor Simulator</span>
+                </div>
+                <span class="device-badge" id="badge-esp32_gear_motor_02">esp32_gear_motor_02</span>
+            </div>
+
+            <div class="readings-container">
+                <!-- Motor Direction / State Box -->
+                <div class="reading-box full-width motor-state {% if device_02.motor_status == 'front' %}front-dir{% elif device_02.motor_status == 'back' %}back-dir{% endif %}" id="motor-box-esp32_gear_motor_02">
+                    <div class="reading-label">
+                        <span>Gear Motor Motion Direction</span>
+                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2v20M17 5l-5-5-5 5M17 19l-5 5-5-5"></path>
+                        </svg>
+                    </div>
+                    <div class="status-pill {% if device_02.motor_status == 'front' %}front{% elif device_02.motor_status == 'back' %}back{% else %}stopped{% endif %}" id="motor-val-esp32_gear_motor_02">
+                        {% if device_02.motor_status == 'front' %}
+                            ⏩ FRONT (FORWARD)
+                        {% elif device_02.motor_status == 'back' %}
+                            ⏪ BACK (REVERSE)
+                        {% else %}
+                            ⏹️ STOPPED
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Motor Temperature -->
+                <div class="reading-box temp">
+                    <div class="reading-label">
+                        <span>Motor Temp</span>
+                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2">
+                            <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="reading-val" id="temp-esp32_gear_motor_02">
+                        {% if device_02.temperature %}{{ device_02.temperature|floatformat:1 }}°C{% else %}--{% endif %}
+                    </div>
+                </div>
+
+                <!-- Motor Speed / RPM -->
+                <div class="reading-box humidity">
+                    <div class="reading-label">
+                        <span>Speed RPM</span>
+                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                    </div>
+                    <div class="reading-val" id="rpm-esp32_gear_motor_02">
+                        {% if device_02.humidity %}{{ device_02.humidity|floatformat:0 }} RPM{% else %}0 RPM{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gear Motor Controls: Front, Back, Stop -->
+            <div class="controls-grid three-col">
+                <button class="btn-action btn-front" onclick="sendDeviceCommand('esp32_gear_motor_02', 'gear_front')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polygon points="13 19 22 12 13 5 13 19"></polygon>
+                        <polygon points="2 19 11 12 2 5 2 19"></polygon>
+                    </svg>
+                    FRONT
+                </button>
+                <button class="btn-action btn-back" onclick="sendDeviceCommand('esp32_gear_motor_02', 'gear_back')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polygon points="11 19 2 12 11 5 11 19"></polygon>
+                        <polygon points="22 19 13 12 22 5 22 19"></polygon>
+                    </svg>
+                    BACK
+                </button>
+                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp32_gear_motor_02', 'gear_stop')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    </svg>
+                    STOP
+                </button>
+            </div>
+
+            <!-- Servo Motor Angle Configuration -->
+            <div class="servo-inputs-container">
+                <div class="servo-title">Servo Motor Angle Configuration</div>
+                <div class="servo-fields">
+                    <div class="servo-field">
+                        <label for="servo-angle1-input">Angle 1 (°)</label>
+                        <input type="number" id="servo-angle1-input" value="30" min="0" max="180" placeholder="e.g. 30">
+                    </div>
+                    <div class="servo-field">
+                        <label for="servo-angle2-input">Angle 2 (°)</label>
+                        <input type="number" id="servo-angle2-input" value="120" min="0" max="180" placeholder="e.g. 120">
+                    </div>
+                </div>
+                <button class="btn-action btn-servo" onclick="sendServoAngles('esp32_gear_motor_02')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    Apply Servo Angles
+                </button>
+            </div>
+
+            <div class="card-footer">
+                <span>Last payload:</span>
+                <span class="timestamp-text" id="time-esp32_gear_motor_02">{{ device_02.timestamp }}</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- System Activity Log Terminal -->
+    <section class="logs-card">
+        <div class="logs-header">
+            <h2 class="logs-title">Live System Activity Logs</h2>
+            <button class="refresh-btn" id="refresh-trigger" onclick="fetchLatestData()" title="Refresh telemetry">
+                <svg viewBox="0 0 24 24">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                </svg>
+            </button>
+        </div>
+        <div class="logs-terminal" id="logs-list">
+            {% if logs %}
+                {% for log in logs %}
+                <div class="log-line {% if 'front' in log.message|lower or 'started' in log.message|lower %}started{% elif 'back' in log.message|lower %}back{% elif 'stopped' in log.message|lower %}stopped{% endif %}">
+                    <span class="log-time">[{{ log.timestamp|date:"H:i:s" }}]</span>
+                    <span class="log-dev">{{ log.device_id }}</span>
+                    <span class="log-msg">{{ log.message }}</span>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-logs">No system activity logged yet. Run a simulator to start telemetry feed.</div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+
+<!-- Toast Popup -->
+<div class="toast" id="toast-message">
+    <span class="toast-dot"></span>
+    <span id="toast-text">Command queued.</span>
+</div>
+
+<script>
+    const refreshBtn = document.getElementById('refresh-trigger');
+    const toast = document.getElementById('toast-message');
+    const toastText = document.getElementById('toast-text');
+
+    function showToast(message) {
+        toastText.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => { toast.classList.remove('show'); }, 3000);
+    }
+
+    // Command Dispatch via AJAX
+    async function sendDeviceCommand(deviceId, commandName) {
+        // Optimistically update UI state immediately on button click
+        if (deviceId === 'esp32_device_01') {
+            const motorBox = document.getElementById('motor-box-esp32_device_01');
+            const motorVal = document.getElementById('motor-val-esp32_device_01');
+            if (motorBox && motorVal) {
+                if (commandName === 'start_motor') {
+                    motorBox.className = 'reading-box full-width motor-state running';
+                    motorVal.className = 'status-pill running';
+                    motorVal.textContent = 'RUNNING';
+                } else if (commandName === 'stop_motor') {
+                    motorBox.className = 'reading-box full-width motor-state';
+                    motorVal.className = 'status-pill stopped';
+                    motorVal.textContent = 'STOPPED';
+                }
+            }
+        } else if (deviceId === 'esp32_gear_motor_02') {
+            const motorBox2 = document.getElementById('motor-box-esp32_gear_motor_02');
+            const motorVal2 = document.getElementById('motor-val-esp32_gear_motor_02');
+            if (motorBox2 && motorVal2) {
+                if (['gear_front', 'front', 'start_motor'].includes(commandName)) {
+                    motorBox2.className = 'reading-box full-width motor-state front-dir';
+                    motorVal2.className = 'status-pill front';
+                    motorVal2.textContent = '⏩ FRONT (FORWARD)';
+                } else if (['gear_back', 'back'].includes(commandName)) {
+                    motorBox2.className = 'reading-box full-width motor-state back-dir';
+                    motorVal2.className = 'status-pill back';
+                    motorVal2.textContent = '⏪ BACK (REVERSE)';
+                } else if (['gear_stop', 'stop_motor', 'stop'].includes(commandName)) {
+                    motorBox2.className = 'reading-box full-width motor-state';
+                    motorVal2.className = 'status-pill stopped';
+                    motorVal2.textContent = '⏹️ STOPPED';
+                }
+            }
+        }
+
+        try {
+            const response = await fetch('/api/command/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    device_id: deviceId,
+                    command: commandName
+                })
+            });
+            
+            const data = await response.json();
+            if (response.ok && data.status === 'success') {
+                showToast(data.message);
+                fetchLatestData();
+                setTimeout(fetchLatestData, 300);
+                setTimeout(fetchLatestData, 1000);
+            } else {
+                showToast('Error: ' + (data.message || 'Failed to send command'));
+            }
+        } catch (error) {
+            console.error('Error sending command:', error);
+            showToast('Connection error to Django server.');
+        }
+    }
+
+    // Send Servo Angles Configuration Command
+    function sendServoAngles(deviceId) {
+        const a1El = document.getElementById('servo-angle1-input');
+        const a2El = document.getElementById('servo-angle2-input');
+        const angle1 = a1El ? (a1El.value || 30) : 30;
+        const angle2 = a2El ? (a2El.value || 120) : 120;
+        sendDeviceCommand(deviceId, `set_servo:${angle1}:${angle2}`);
+    }
+
+    // Refresh Telemetry Data via JSON AJAX Polling
+    async function fetchLatestData() {
+        if (refreshBtn && refreshBtn.classList.contains('spinning')) return;
+        if (refreshBtn) refreshBtn.classList.add('spinning');
+
+        try {
+            const response = await fetch('/api/status/?format=json', {
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                if (data.status === 'success' && data.devices) {
+                    // Update esp32_device_01
+                    const dev1 = data.devices['esp32_device_01'];
+                    if (dev1) {
+                        const waterEl = document.getElementById('water-esp32_device_01');
+                        const motorBox = document.getElementById('motor-box-esp32_device_01');
+                        const motorVal = document.getElementById('motor-val-esp32_device_01');
+                        const timeEl = document.getElementById('time-esp32_device_01');
+
+                        if (waterEl && dev1.water_level !== null && dev1.water_level !== undefined) {
+                            waterEl.textContent = Math.round(dev1.water_level) + '%';
+                        }
+                        if (timeEl) timeEl.textContent = dev1.timestamp || 'Never';
+
+                        if (motorBox && motorVal) {
+                            if (dev1.motor_status === 'started') {
+                                motorBox.className = 'reading-box full-width motor-state running';
+                                motorVal.className = 'status-pill running';
+                                motorVal.textContent = 'RUNNING';
+                            } else {
+                                motorBox.className = 'reading-box full-width motor-state';
+                                motorVal.className = 'status-pill stopped';
+                                motorVal.textContent = 'STOPPED';
+                            }
+                        }
+                    }
+
+                    // Update esp32_gear_motor_02
+                    const dev2 = data.devices['esp32_gear_motor_02'];
+                    if (dev2) {
+                        const tempEl2 = document.getElementById('temp-esp32_gear_motor_02');
+                        const rpmEl2 = document.getElementById('rpm-esp32_gear_motor_02');
+                        const motorBox2 = document.getElementById('motor-box-esp32_gear_motor_02');
+                        const motorVal2 = document.getElementById('motor-val-esp32_gear_motor_02');
+                        const timeEl2 = document.getElementById('time-esp32_gear_motor_02');
+
+                        if (tempEl2 && dev2.temperature !== null) tempEl2.textContent = parseFloat(dev2.temperature).toFixed(1) + '°C';
+                        if (rpmEl2 && dev2.humidity !== null) rpmEl2.textContent = Math.round(dev2.humidity) + ' RPM';
+                        if (timeEl2) timeEl2.textContent = dev2.timestamp || 'Never';
+
+                        if (motorBox2 && motorVal2) {
+                            if (dev2.motor_status === 'front') {
+                                motorBox2.className = 'reading-box full-width motor-state front-dir';
+                                motorVal2.className = 'status-pill front';
+                                motorVal2.textContent = '⏩ FRONT (FORWARD)';
+                            } else if (dev2.motor_status === 'back') {
+                                motorBox2.className = 'reading-box full-width motor-state back-dir';
+                                motorVal2.className = 'status-pill back';
+                                motorVal2.textContent = '⏪ BACK (REVERSE)';
+                            } else {
+                                motorBox2.className = 'reading-box full-width motor-state';
+                                motorVal2.className = 'status-pill stopped';
+                                motorVal2.textContent = '⏹️ STOPPED';
+                            }
+                        }
+                    }
+                }
+
+                // Update System Activity Terminal Logs
+                if (data.logs) {
+                    const logsList = document.getElementById('logs-list');
+                    if (logsList) {
+                        if (data.logs.length === 0) {
+                            logsList.innerHTML = '<div class="no-logs">No system activity logged yet.</div>';
+                        } else {
+                            logsList.innerHTML = '';
+                            data.logs.forEach(log => {
+                                const entry = document.createElement('div');
+                                const msgLower = (log.message || '').toLowerCase();
+                                let stateClass = '';
+                                if (msgLower.includes('front') || msgLower.includes('started')) stateClass = 'started';
+                                else if (msgLower.includes('back')) stateClass = 'back';
+                                else if (msgLower.includes('stopped')) stateClass = 'stopped';
+
+                                entry.className = `log-line ${stateClass}`;
+
+                                let timeStr = log.timestamp || '';
+                                if (timeStr.length > 11) timeStr = timeStr.substring(11);
+
+                                entry.innerHTML = `
+                                    <span class="log-time">[${timeStr}]</span>
+                                    <span class="log-dev">${log.device_id}</span>
+                                    <span class="log-msg">${log.message}</span>
+                                `;
+                                logsList.appendChild(entry);
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error auto-refreshing telemetry:', error);
+        } finally {
+            if (refreshBtn) {
+                setTimeout(() => { refreshBtn.classList.remove('spinning'); }, 500);
+            }
+        }
+    }
+
+    // Auto-poll status every 1 second
+    setInterval(fetchLatestData, 1000);
+</script>
+</body>
+</html>

@@ -27,6 +27,15 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     "premkumarp94.pythonanywhere.com",
+    "127.0.0.1",
+    "localhost",
+    "192.168.1.1",
+    "192.168.1.2",
+    "192.168.1.3",
+    "192.168.1.4",
+    "192.168.1.5",
+    "testserver",
+    "*",
 ]
 
 # Application definition

@@ -3,6 +3,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <time.h>
 
 //==================================================
 // WIFI CONFIGURATION
@@ -23,6 +24,9 @@ int minPercentage = 33;       // Minimum threshold to turn ON motor
 int maxPercentage = 100;      // Maximum threshold to turn OFF motor
 bool waterLevelMode = true;   // Water Level Mode (true = Auto mode ENABLED, false = MANUAL mode)
 int currentWaterLevel = 0;    // Current measured water level (synced from Tank Unit esp8266_device_01 or local probes)
+
+// IST Timestamp in YYYYMMDD:HH:MM:SS format
+String currentIstTime = "20260811:00:00:00";
 
 // Set to true ONLY if physical probe sensors are directly wired to THIS motor ESP8266 board.
 // Set to false (default) if water probe sensors are on esp8266_device_01 (Tank Unit).
@@ -59,6 +63,26 @@ const char* serverList[] = {
 
 const int SERVER_COUNT = sizeof(serverList) / sizeof(serverList[0]);
 int activeServer = -1;
+
+//==================================================
+// IST TIMESTAMP GENERATOR (YYYYMMDD:HH:MM:SS)
+//==================================================
+String getIstTimestamp() {
+  time_t now = time(nullptr);
+  if (now > 100000) {
+    struct tm* timeinfo = localtime(&now);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%04d%02d%02d:%02d:%02d:%02d",
+             timeinfo->tm_year + 1900,
+             timeinfo->tm_mon + 1,
+             timeinfo->tm_mday,
+             timeinfo->tm_hour,
+             timeinfo->tm_min,
+             timeinfo->tm_sec);
+    return String(buf);
+  }
+  return currentIstTime;
+}
 
 //==================================================
 // WATER LEVEL PROBE READER
@@ -105,7 +129,7 @@ int readWaterLevel() {
 }
 
 //==================================================
-// DUAL JSON SERIAL TRANSMISSIONS TO ARDUINO
+// DUAL JSON SERIAL TRANSMISSIONS TO ARDUINO WITH IST DATETIME
 //==================================================
 
 // 1. Send Settings JSON to Arduino
@@ -115,6 +139,7 @@ void sendSettingsJsonToArduino() {
   doc["min"] = minPercentage;
   doc["max"] = maxPercentage;
   doc["auto"] = waterLevelMode;
+  doc["time"] = getIstTimestamp();
 
   String output;
   serializeJson(doc, output);
@@ -127,6 +152,7 @@ void sendStatusJsonToArduino() {
   doc["type"] = "status";
   doc["level"] = currentWaterLevel;
   doc["motor"] = motorStatus;
+  doc["time"] = getIstTimestamp();
 
   String output;
   serializeJson(doc, output);
@@ -245,6 +271,8 @@ bool connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("Connected. IP: ");
     Serial.println(WiFi.localIP());
+    // Configure NTP time for IST (UTC+5:30)
+    configTime(5.5 * 3600, 0, "pool.ntp.org", "time.nist.gov");
     return true;
   }
 
@@ -426,7 +454,11 @@ bool sendTelemetry() {
     return true;
   }
 
-  // Update Tank Water Level & Thresholds from Django Server Response
+  // Update IST Datetime, Tank Water Level & Thresholds from Django Server Response
+  if (!responseDoc["ist_time"].isNull()) {
+    currentIstTime = responseDoc["ist_time"].as<String>();
+  }
+
   if (!responseDoc["water_level"].isNull() && !ENABLE_LOCAL_PROBES) {
     int serverLvl = responseDoc["water_level"].as<int>();
     if (serverLvl != currentWaterLevel) {
@@ -534,7 +566,7 @@ void setup() {
   Serial.println("==============================================");
   Serial.println("ESP8266 WATER MOTOR CONTROLLER STARTING");
   Serial.println("Sending Water Level & Settings to Server");
-  Serial.println("Sending Dual JSON Serial Packets to Arduino");
+  Serial.println("Sending Dual JSON Serial Packets with IST Datetime to Arduino");
   Serial.println("==============================================");
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);

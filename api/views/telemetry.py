@@ -1,4 +1,5 @@
 import json
+import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from api.models import TelemetryReading, DeviceCommand, DeviceLog, WaterThreshold
@@ -135,7 +136,12 @@ def telemetry(request):
             dev1_reading = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
             latest_water_lvl = dev1_reading.water_level if (dev1_reading and dev1_reading.water_level is not None) else water_level
 
-            print(f"  => Sending response to {device_id}: Command='{server_cmd}' | Water Level={latest_water_lvl}%")
+            # Compute IST time (UTC+5:30) formatted as YYYYMMDD:HH:MM:SS
+            ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            now_ist = datetime.datetime.now(ist_offset)
+            ist_time_str = now_ist.strftime("%Y%m%d:%H:%M:%S")
+
+            print(f"  => Sending response to {device_id}: Command='{server_cmd}' | Water Level={latest_water_lvl}% | IST={ist_time_str}")
             
             return JsonResponse({
                 "status": "success",
@@ -143,7 +149,8 @@ def telemetry(request):
                 "water_level": latest_water_lvl,
                 "start_level": t_obj.start_level,
                 "stop_level": t_obj.stop_level,
-                "auto_mode": t_obj.auto_mode
+                "auto_mode": t_obj.auto_mode,
+                "ist_time": ist_time_str
             })
             
         except (json.JSONDecodeError, KeyError) as e:

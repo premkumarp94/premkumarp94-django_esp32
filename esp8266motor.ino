@@ -22,6 +22,14 @@ int iterationCount = 0;
 int minPercentage = 33;       // Minimum threshold to turn ON motor
 int maxPercentage = 100;      // Maximum threshold to turn OFF motor
 bool waterLevelMode = true;   // Water Level Mode (true = Auto mode ENABLED, false = MANUAL mode)
+int currentWaterLevel = 0;    // Current measured water level
+
+// Track Arduino's Last Understood State (for Synchronization)
+int lastArduinoMin = -1;
+int lastArduinoMax = -1;
+bool lastArduinoAuto = false;
+int lastArduinoLevel = -1;
+String lastArduinoMotor = "unknown";
 
 //==================================================
 // WATER PROBE PINS (ESP8266)
@@ -88,19 +96,89 @@ int readWaterLevel() {
 }
 
 //==================================================
-// MOTOR & SERIAL RELAY CONTROL FOR ARDUINO PIN 7
+// DUAL JSON SERIAL TRANSMISSIONS TO ARDUINO
 //==================================================
+
+// 1. Send Settings JSON to Arduino
+void sendSettingsJsonToArduino() {
+  StaticJsonDocument<256> doc;
+  doc["type"] = "settings";
+  doc["min"] = minPercentage;
+  doc["max"] = maxPercentage;
+  doc["auto"] = waterLevelMode;
+
+  String output;
+  serializeJson(doc, output);
+  Serial.println(output); // Sent to Arduino via Serial
+}
+
+// 2. Send Status/Percentage JSON to Arduino
+void sendStatusJsonToArduino() {
+  StaticJsonDocument<256> doc;
+  doc["type"] = "status";
+  doc["level"] = currentWaterLevel;
+  doc["motor"] = motorStatus;
+
+  String output;
+  serializeJson(doc, output);
+  Serial.println(output); // Sent to Arduino via Serial
+}
+
+// Set Motor State & Send Status JSON to Arduino
 void setMotorState(bool start) {
   if (start) {
     motorStatus = "started";
-    // Send Serial command to Arduino (controls Relay on Pin 7)
-    Serial.println("MOTOR_ON");
-    Serial.println(">>> ESP8266: SENT 'MOTOR_ON' TO ARDUINO (RELAY PIN 7 HIGH) <<<");
   } else {
     motorStatus = "stopped";
-    // Send Serial command to Arduino (controls Relay on Pin 7)
-    Serial.println("MOTOR_OFF");
-    Serial.println(">>> ESP8266: SENT 'MOTOR_OFF' TO ARDUINO (RELAY PIN 7 LOW) <<<");
+  }
+  sendStatusJsonToArduino();
+}
+
+// Check Arduino state JSON response & verify synchronization
+void processArduinoSerialResponse() {
+  while (Serial.available() > 0) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+
+    if (line.length() == 0) continue;
+
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, line);
+
+    if (!error) {
+      String msgType = doc["type"] | "";
+      if (msgType == "state") {
+        lastArduinoMin = doc["min"] | -1;
+        lastArduinoMax = doc["max"] | -1;
+        lastArduinoAuto = doc["auto"] | false;
+        lastArduinoLevel = doc["level"] | -1;
+        lastArduinoMotor = doc["motor"] | "unknown";
+
+        Serial.println("\n[ARDUINO STATE RECEIVED]");
+        Serial.print("  Min: "); Serial.print(lastArduinoMin);
+        Serial.print("% | Max: "); Serial.print(lastArduinoMax);
+        Serial.print("% | Auto: "); Serial.print(lastArduinoAuto ? "ON" : "OFF");
+        Serial.print(" | Level: "); Serial.print(lastArduinoLevel);
+        Serial.print("% | Motor: "); Serial.println(lastArduinoMotor);
+
+        // Verify if Arduino state matches ESP8266 knowledge
+        bool inSync = (lastArduinoMin == minPercentage &&
+                       lastArduinoMax == maxPercentage &&
+                       lastArduinoAuto == waterLevelMode &&
+                       lastArduinoLevel == currentWaterLevel &&
+                       lastArduinoMotor == motorStatus);
+
+        if (!inSync) {
+          Serial.println("\n[SYNC MISMATCH DETECTED] Arduino state is out of sync with ESP8266 knowledge!");
+          Serial.println(">>> INITIATING ESP8266 -> ARDUINO STATE SYNC <<<");
+          sendSettingsJsonToArduino();
+          delay(50);
+          sendStatusJsonToArduino();
+        } else {
+          Serial.println("[SYNC STATUS] Arduino is fully in sync with ESP8266.");
+        }
+      }
+    }
   }
 }
 
@@ -178,7 +256,7 @@ bool postJson(const char* url, const String& body, String& responseOut) {
 
   if (strncmp(url, "https://", 8) == 0) {
     WiFiClientSecure client;
-    client.setInsecure(); // Skip certificate verification for testing
+    client.setInsecure();
 
     if (!http.begin(client, url)) {
       Serial.println("HTTPS begin failed.");
@@ -293,10 +371,17 @@ bool sendTelemetry() {
     }
   }
 
-  int currentWaterLevel = readWaterLevel();
+  currentWaterLevel = readWaterLevel();
 
   // Evaluate Auto Water Level Mode rules before sending telemetry
   evaluateAutoWaterLevelMode(currentWaterLevel);
+
+  // Send JSON messages over Serial to Arduino
+  sendSettingsJsonToArduino();
+  delay(50);
+  sendStatusJsonToArduino();
+  delay(50);
+  processArduinoSerialResponse();
 
   String ack = "dummy_ack";
   String message = pendingDeviceMsg;
@@ -304,7 +389,7 @@ bool sendTelemetry() {
   String body = buildTelemetry(ack, message, currentWaterLevel);
 
   Serial.println();
-  Serial.println("Sending telemetry payload:");
+  Serial.println("Sending telemetry payload to Django:");
   Serial.println(body);
 
   String response;
@@ -347,8 +432,6 @@ bool sendTelemetry() {
     pendingDeviceMsg = "Motor stopped successfully.";
     commandExecuted = true;
   } else if (command.startsWith("set_threshold:")) {
-    // Format: set_threshold:start_val:stop_val:auto_mode
-    // Example: set_threshold:33:100:1
     int firstColon = command.indexOf(':');
     int secondColon = command.indexOf(':', firstColon + 1);
     int thirdColon = command.indexOf(':', secondColon + 1);
@@ -362,16 +445,23 @@ bool sendTelemetry() {
       maxPercentage = stopStr.toInt();
       waterLevelMode = (autoStr.toInt() == 1 || autoStr.equalsIgnoreCase("true"));
 
+      // Transmit updated settings JSON to Arduino immediately
+      sendSettingsJsonToArduino();
+      delay(50);
+      processArduinoSerialResponse();
+
       pendingDeviceMsg = "Settings updated: Min=" + String(minPercentage) + "%, Max=" + String(maxPercentage) + "%, AutoMode=" + String(waterLevelMode ? "ON" : "OFF");
       Serial.println(pendingDeviceMsg);
       commandExecuted = true;
     }
   } else if (command == "auto_on") {
     waterLevelMode = true;
+    sendSettingsJsonToArduino();
     pendingDeviceMsg = "Water Level Mode enabled (Auto mode ON).";
     commandExecuted = true;
   } else if (command == "auto_off") {
     waterLevelMode = false;
+    sendSettingsJsonToArduino();
     pendingDeviceMsg = "Water Level Mode disabled (Manual mode ON).";
     commandExecuted = true;
   }
@@ -409,7 +499,7 @@ void setup() {
   Serial.println("==============================================");
   Serial.println("ESP8266 WATER MOTOR CONTROLLER STARTING");
   Serial.println("Sending Water Level & Settings to Server");
-  Serial.println("Sending Serial Motor Commands to Arduino Pin 7");
+  Serial.println("Sending Dual JSON Serial Packets to Arduino");
   Serial.println("==============================================");
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);

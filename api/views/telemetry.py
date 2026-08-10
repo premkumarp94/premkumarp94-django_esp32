@@ -131,11 +131,19 @@ def telemetry(request):
                 else:
                     server_cmd = ""
                 
-            print(f"  => Sending response to {device_id}: Command='{server_cmd}'")
+            # Get latest water level reading from tank device (esp8266_device_01)
+            dev1_reading = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
+            latest_water_lvl = dev1_reading.water_level if (dev1_reading and dev1_reading.water_level is not None) else water_level
+
+            print(f"  => Sending response to {device_id}: Command='{server_cmd}' | Water Level={latest_water_lvl}%")
             
             return JsonResponse({
                 "status": "success",
-                "command": server_cmd
+                "command": server_cmd,
+                "water_level": latest_water_lvl,
+                "start_level": t_obj.start_level,
+                "stop_level": t_obj.stop_level,
+                "auto_mode": t_obj.auto_mode
             })
             
         except (json.JSONDecodeError, KeyError) as e:

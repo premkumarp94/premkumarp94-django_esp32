@@ -16,9 +16,9 @@
 
 //==================================================
 // PIN DEFINITIONS & RELAY LOGIC
-//==================================================
+//==================================================// Pin definition for Relay
 const int RELAY_PIN = 7;
-const bool RELAY_ACTIVE_LOW = false; // Set to true if your relay triggers ON with LOW
+const bool RELAY_ACTIVE_LOW = true; // Set to true for Active-LOW Relay modules (0V/LOW = ON)
 
 //==================================================
 // ARDUINO LOCAL UNDERSTOOD STATE
@@ -82,14 +82,18 @@ void loop() {
         if (arduinoMotorStatus != "started") {
           arduinoMotorStatus = "started";
           applyRelayHardwareState(true);
-          Serial.println("[MOTOR STATUS CHANGED] Motor: RUNNING (Relay Pin 7 HIGH)");
+          Serial.print("[MOTOR STATUS CHANGED] Motor: RUNNING (Relay Pin 7 ");
+          Serial.print(RELAY_ACTIVE_LOW ? "LOW" : "HIGH");
+          Serial.println(")");
         }
         sendArduinoStateToESP8266();
       } else if (incoming.equalsIgnoreCase("MOTOR_OFF") || incoming.equalsIgnoreCase("STOP")) {
         if (arduinoMotorStatus != "stopped") {
           arduinoMotorStatus = "stopped";
           applyRelayHardwareState(false);
-          Serial.println("[MOTOR STATUS CHANGED] Motor: STOPPED (Relay Pin 7 LOW)");
+          Serial.print("[MOTOR STATUS CHANGED] Motor: STOPPED (Relay Pin 7 ");
+          Serial.print(RELAY_ACTIVE_LOW ? "HIGH" : "LOW");
+          Serial.println(")");
         }
         sendArduinoStateToESP8266();
       }
@@ -146,9 +150,13 @@ void loop() {
 
         Serial.print("[MOTOR STATUS CHANGED] Motor: ");
         if (turnOn) {
-          Serial.println("RUNNING (Relay Pin 7 HIGH)");
+          Serial.print("RUNNING (Relay Pin 7 ");
+          Serial.print(RELAY_ACTIVE_LOW ? "LOW" : "HIGH");
+          Serial.println(")");
         } else {
-          Serial.println("STOPPED (Relay Pin 7 LOW)");
+          Serial.print("STOPPED (Relay Pin 7 ");
+          Serial.print(RELAY_ACTIVE_LOW ? "HIGH" : "LOW");
+          Serial.println(")");
         }
       }
 

@@ -22,7 +22,11 @@ int iterationCount = 0;
 int minPercentage = 33;       // Minimum threshold to turn ON motor
 int maxPercentage = 100;      // Maximum threshold to turn OFF motor
 bool waterLevelMode = true;   // Water Level Mode (true = Auto mode ENABLED, false = MANUAL mode)
-int currentWaterLevel = 0;    // Current measured water level
+int currentWaterLevel = 0;    // Current measured water level (synced from Tank Unit esp8266_device_01 or local probes)
+
+// Set to true ONLY if physical probe sensors are directly wired to THIS motor ESP8266 board.
+// Set to false (default) if water probe sensors are on esp8266_device_01 (Tank Unit).
+const bool ENABLE_LOCAL_PROBES = false;
 
 // Track Arduino's Last Understood State (for Synchronization)
 int lastArduinoMin = -1;
@@ -60,6 +64,11 @@ int activeServer = -1;
 // WATER LEVEL PROBE READER
 //==================================================
 int readWaterLevel() {
+  if (!ENABLE_LOCAL_PROBES) {
+    // Probes are on esp8266_device_01 (Tank Unit). Use water level synced from Django telemetry.
+    return currentWaterLevel;
+  }
+
   if (USE_INTERNAL_PULLUP) {
     digitalWrite(COMMON_PIN, LOW);
     delay(30);
@@ -69,7 +78,7 @@ int readWaterLevel() {
     bool full = (digitalRead(FULL_PIN) == LOW);
 
     Serial.println();
-    Serial.println("===== WATER PROBE READINGS =====");
+    Serial.println("===== LOCAL WATER PROBE READINGS =====");
     Serial.print("LOW  (D2)  = "); Serial.println(low ? "WATER DETECTED" : "OPEN AIR");
     Serial.print("MID  (D5)  = "); Serial.println(mid ? "WATER DETECTED" : "OPEN AIR");
     Serial.print("FULL (D6)  = "); Serial.println(full ? "WATER DETECTED" : "OPEN AIR");
@@ -191,7 +200,7 @@ void evaluateAutoWaterLevelMode(int waterLevel) {
     return;
   }
 
-  Serial.print("Auto Water Level Mode ACTIVE. Level: ");
+  Serial.print("Auto Water Level Mode ACTIVE. Tank Level: ");
   Serial.print(waterLevel);
   Serial.print("% | Target Range: [Min: ");
   Serial.print(minPercentage);
@@ -417,6 +426,27 @@ bool sendTelemetry() {
     return true;
   }
 
+  // Update Tank Water Level & Thresholds from Django Server Response
+  if (!responseDoc["water_level"].isNull() && !ENABLE_LOCAL_PROBES) {
+    int serverLvl = responseDoc["water_level"].as<int>();
+    if (serverLvl != currentWaterLevel) {
+      currentWaterLevel = serverLvl;
+      Serial.print("Synced Water Level from Tank Device esp8266_device_01: ");
+      Serial.print(currentWaterLevel);
+      Serial.println("%");
+    }
+  }
+
+  if (!responseDoc["start_level"].isNull()) {
+    minPercentage = responseDoc["start_level"].as<int>();
+  }
+  if (!responseDoc["stop_level"].isNull()) {
+    maxPercentage = responseDoc["stop_level"].as<int>();
+  }
+  if (!responseDoc["auto_mode"].isNull()) {
+    waterLevelMode = responseDoc["auto_mode"].as<bool>();
+  }
+
   String command = responseDoc["command"] | "";
   Serial.print("Command received: ");
   Serial.println(command);
@@ -466,6 +496,11 @@ bool sendTelemetry() {
     commandExecuted = true;
   }
 
+  // Send latest synced status & settings to Arduino
+  sendSettingsJsonToArduino();
+  delay(50);
+  sendStatusJsonToArduino();
+
   if (commandExecuted) {
     Serial.println();
     Serial.println("Sending immediate command confirmation...");
@@ -504,18 +539,19 @@ void setup() {
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);
 
-  // Configure Water Level Probe Pins
-  pinMode(COMMON_PIN, OUTPUT);
-  if (USE_INTERNAL_PULLUP) {
-    digitalWrite(COMMON_PIN, LOW);
-    pinMode(LOW_PIN, INPUT_PULLUP);
-    pinMode(MID_PIN, INPUT_PULLUP);
-    pinMode(FULL_PIN, INPUT_PULLUP);
-  } else {
-    digitalWrite(COMMON_PIN, LOW);
-    pinMode(LOW_PIN, INPUT);
-    pinMode(MID_PIN, INPUT);
-    pinMode(FULL_PIN, INPUT);
+  if (ENABLE_LOCAL_PROBES) {
+    pinMode(COMMON_PIN, OUTPUT);
+    if (USE_INTERNAL_PULLUP) {
+      digitalWrite(COMMON_PIN, LOW);
+      pinMode(LOW_PIN, INPUT_PULLUP);
+      pinMode(MID_PIN, INPUT_PULLUP);
+      pinMode(FULL_PIN, INPUT_PULLUP);
+    } else {
+      digitalWrite(COMMON_PIN, LOW);
+      pinMode(LOW_PIN, INPUT);
+      pinMode(MID_PIN, INPUT);
+      pinMode(FULL_PIN, INPUT);
+    }
   }
 
   // Default motor state: STOPPED

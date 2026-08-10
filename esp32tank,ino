@@ -18,7 +18,7 @@ const char* candidateUrls[] = {
 const int numCandidates = 6;
 
 String activeServerUrl = "";
-String deviceId = "esp32_device_01";
+String deviceId = "esp8266_device_01";
 String motorStatus = "stopped";
 String pendingDeviceMsg = "esp32 booted normally";
 int iterationCount = 0;

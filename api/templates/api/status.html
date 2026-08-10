@@ -563,14 +563,14 @@
     <!-- Devices Grid -->
     <div class="devices-grid">
         
-        <!-- CARD 1: ESP32 Water Level & Fan Device (esp32_device_01) -->
-        <div class="device-card" id="card-esp32_device_01">
+        <!-- CARD 1: ESP8266 Water Level & Fan Device (esp8266_device_01) -->
+        <div class="device-card" id="card-esp8266_device_01">
             <div class="card-header">
                 <div class="device-title">
                     <span class="status-dot"></span>
                     <span class="device-name">Water Level & Fan Simulator</span>
                 </div>
-                <span class="device-badge" id="badge-esp32_device_01">esp32_device_01</span>
+                <span class="device-badge" id="badge-esp8266_device_01">esp8266_device_01</span>
             </div>
 
             <div class="readings-container">
@@ -582,13 +582,13 @@
                             <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
                         </svg>
                     </div>
-                    <div class="reading-val" id="water-esp32_device_01">
+                    <div class="reading-val" id="water-esp8266_device_01">
                         {% if device_01.water_level != None %}{{ device_01.water_level|floatformat:0 }}%{% else %}--{% endif %}
                     </div>
                 </div>
 
                 <!-- Fan Motor Status -->
-                <div class="reading-box full-width motor-state {% if device_01.motor_status == 'started' %}running{% endif %}" id="motor-box-esp32_device_01">
+                <div class="reading-box full-width motor-state {% if device_01.motor_status == 'started' %}running{% endif %}" id="motor-box-esp8266_device_01">
                     <div class="reading-label">
                         <span>Fan Motor Status</span>
                         <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -597,7 +597,7 @@
                             <path d="M12 12c3 0 5.5 2.5 5.5 5.5S15 23 12 23c-3 0-5.5-2.5-5.5-5.5S9 12 12 12z"></path>
                         </svg>
                     </div>
-                    <div class="status-pill {% if device_01.motor_status == 'started' %}running{% else %}stopped{% endif %}" id="motor-val-esp32_device_01">
+                    <div class="status-pill {% if device_01.motor_status == 'started' %}running{% else %}stopped{% endif %}" id="motor-val-esp8266_device_01">
                         {% if device_01.motor_status == 'started' %}RUNNING{% else %}STOPPED{% endif %}
                     </div>
                 </div>
@@ -605,14 +605,14 @@
 
             <!-- Controls -->
             <div class="controls-grid two-col">
-                <button class="btn-action btn-start" onclick="sendDeviceCommand('esp32_device_01', 'start_motor')">
+                <button class="btn-action btn-start" onclick="sendDeviceCommand('esp8266_device_01', 'start_motor')">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
                         <line x1="12" y1="2" x2="12" y2="12"></line>
                     </svg>
                     Start Motor
                 </button>
-                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp32_device_01', 'stop_motor')">
+                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp8266_device_01', 'stop_motor')">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                     </svg>
@@ -622,7 +622,7 @@
 
             <div class="card-footer">
                 <span>Last payload:</span>
-                <span class="timestamp-text" id="time-esp32_device_01">{{ device_01.timestamp }}</span>
+                <span class="timestamp-text" id="time-esp8266_device_01">{{ device_01.timestamp }}</span>
             </div>
         </div>
 
@@ -784,9 +784,9 @@
     // Command Dispatch via AJAX
     async function sendDeviceCommand(deviceId, commandName) {
         // Optimistically update UI state immediately on button click
-        if (deviceId === 'esp32_device_01') {
-            const motorBox = document.getElementById('motor-box-esp32_device_01');
-            const motorVal = document.getElementById('motor-val-esp32_device_01');
+        if (deviceId === 'esp8266_device_01') {
+            const motorBox = document.getElementById('motor-box-esp8266_device_01');
+            const motorVal = document.getElementById('motor-val-esp8266_device_01');
             if (motorBox && motorVal) {
                 if (commandName === 'start_motor') {
                     motorBox.className = 'reading-box full-width motor-state running';
@@ -869,13 +869,13 @@
                 const data = await response.json();
 
                 if (data.status === 'success' && data.devices) {
-                    // Update esp32_device_01
-                    const dev1 = data.devices['esp32_device_01'];
+                    // Update esp8266_device_01
+                    const dev1 = data.devices['esp8266_device_01'];
                     if (dev1) {
-                        const waterEl = document.getElementById('water-esp32_device_01');
-                        const motorBox = document.getElementById('motor-box-esp32_device_01');
-                        const motorVal = document.getElementById('motor-val-esp32_device_01');
-                        const timeEl = document.getElementById('time-esp32_device_01');
+                        const waterEl = document.getElementById('water-esp8266_device_01');
+                        const motorBox = document.getElementById('motor-box-esp8266_device_01');
+                        const motorVal = document.getElementById('motor-val-esp8266_device_01');
+                        const timeEl = document.getElementById('time-esp8266_device_01');
 
                         if (waterEl && dev1.water_level !== null && dev1.water_level !== undefined) {
                             waterEl.textContent = Math.round(dev1.water_level) + '%';

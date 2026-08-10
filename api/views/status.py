@@ -12,7 +12,7 @@ def status(request):
         device_ids = []
     
     # Ensure standard simulator devices exist in dictionary
-    default_devices = ["esp32_device_01", "esp32_gear_motor_02"]
+    default_devices = ["esp8266_device_01", "esp32_gear_motor_02"]
     for dev in default_devices:
         if dev not in device_ids:
             device_ids.append(dev)
@@ -73,7 +73,7 @@ def status(request):
     if 'text/html' in accept_header and format_param != 'json':
         context = {
             "devices": devices_data,
-            "device_01": devices_data.get("esp32_device_01"),
+            "device_01": devices_data.get("esp8266_device_01"),
             "device_02": devices_data.get("esp32_gear_motor_02"),
             "has_data": overall_latest is not None,
             "logs": latest_logs
@@ -85,7 +85,7 @@ def status(request):
         "status": "success",
         "devices": devices_data,
         "logs": logs_data,
-        "device_id": overall_latest.device_id if overall_latest else "esp32_device_01",
+        "device_id": overall_latest.device_id if overall_latest else "esp8266_device_01",
         "water_level": overall_latest.water_level if overall_latest else None,
         "temperature": overall_latest.temperature if overall_latest else None,
         "humidity": overall_latest.humidity if overall_latest else None,

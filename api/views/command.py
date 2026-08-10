@@ -8,7 +8,7 @@ def send_command(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
-            device_id = data.get("device_id", "esp32_device_01")
+            device_id = data.get("device_id", "esp8266_device_01")
             command = data.get("command")
             if command in ["start_motor", "stop_motor", "gear_front", "gear_back", "gear_stop", "front", "back", "stop"] or command.startswith("set_servo"):
                 DeviceCommand.objects.create(device_id=device_id, command=command)
@@ -17,7 +17,7 @@ def send_command(request):
                 latest_reading = TelemetryReading.objects.filter(device_id=device_id).order_by('-timestamp').first()
                 if latest_reading:
                     if command in ["start_motor", "gear_front", "front"]:
-                        latest_reading.motor_status = "started" if device_id == "esp32_device_01" else "front"
+                        latest_reading.motor_status = "started" if device_id == "esp8266_device_01" else "front"
                     elif command in ["stop_motor", "gear_stop", "stop"]:
                         latest_reading.motor_status = "stopped"
                     elif command in ["gear_back", "back"]:

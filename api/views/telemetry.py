@@ -73,7 +73,7 @@ def telemetry(request):
                 latest_reading = TelemetryReading.objects.filter(device_id=device_id).order_by('-timestamp').first()
                 if latest_reading:
                     if server_cmd in ["start_motor", "gear_front", "front"]:
-                        latest_reading.motor_status = "started" if device_id == "esp32_device_01" else "front"
+                        latest_reading.motor_status = "started" if device_id == "esp8266_device_01" else "front"
                         latest_reading.save()
                     elif server_cmd in ["stop_motor", "gear_stop", "stop"]:
                         latest_reading.motor_status = "stopped"

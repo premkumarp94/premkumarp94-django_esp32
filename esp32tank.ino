@@ -8,7 +8,7 @@ const char* ssid = "TIC_5G-PREM";
 const char* password = "prem@123";
 
 //===================== DEVICE ===================
-String deviceId = "esp32_device_01";
+String deviceId = "esp8266_device_01";
 String motorStatus = "stopped";
 String pendingDeviceMsg = "esp32 booted normally";
 int iterationCount = 0;

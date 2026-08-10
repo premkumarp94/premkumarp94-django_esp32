@@ -5,10 +5,10 @@ import json
 from datetime import datetime
 
 # Configurations
-DEVICE_ID = "esp32_device_01"  # Unique device name
+DEVICE_ID = "esp8266_device_01"  # Unique device name
 loop_interval = 5  # sends data once every 5 seconds
 motor_status = "stopped"
-pending_device_msg = "esp32 booted normally"
+pending_device_msg = "esp8266 booted normally"
 iteration_count = 0
 
 

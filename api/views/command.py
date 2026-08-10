@@ -29,6 +29,9 @@ def send_command(request):
                     message=f"Water level thresholds updated: Start at <= {start_val:.0f}%, Stop at >= {stop_val:.0f}% (Auto Mode: {'ON' if auto_mode else 'OFF'})"
                 )
 
+                # Queue command for ESP8266 motor device so it receives new settings
+                DeviceCommand.objects.create(device_id=device_id, command=command)
+
                 return JsonResponse({
                     "status": "success",
                     "message": f"Thresholds saved: Start <= {start_val:.0f}%, Stop >= {stop_val:.0f}%.",

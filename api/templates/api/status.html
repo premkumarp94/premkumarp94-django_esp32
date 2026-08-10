@@ -638,6 +638,19 @@
             </div>
 
             <div class="readings-container">
+                <!-- Water Level -->
+                <div class="reading-box water-level full-width">
+                    <div class="reading-label">
+                        <span>Water Level</span>
+                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="reading-val" id="water-esp8266_device_02">
+                        {% if device_02.water_level != None %}{{ device_02.water_level|floatformat:0 }}%{% else %}--{% endif %}
+                    </div>
+                </div>
+
                 <!-- Motor State Box -->
                 <div class="reading-box full-width motor-state {% if device_02.motor_status == 'started' %}running{% endif %}" id="motor-box-esp8266_device_02">
                     <div class="reading-label">
@@ -886,10 +899,14 @@
                     // Update esp8266_device_02
                     const dev2 = data.devices['esp8266_device_02'];
                     if (dev2) {
+                        const waterEl2 = document.getElementById('water-esp8266_device_02');
                         const motorBox2 = document.getElementById('motor-box-esp8266_device_02');
                         const motorVal2 = document.getElementById('motor-val-esp8266_device_02');
                         const timeEl2 = document.getElementById('time-esp8266_device_02');
 
+                        if (waterEl2 && dev2.water_level !== null && dev2.water_level !== undefined) {
+                            waterEl2.textContent = Math.round(dev2.water_level) + '%';
+                        }
                         if (timeEl2) timeEl2.textContent = dev2.timestamp || 'Never';
 
                         if (motorBox2 && motorVal2) {

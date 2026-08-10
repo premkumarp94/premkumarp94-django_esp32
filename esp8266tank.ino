@@ -28,10 +28,14 @@ int iterationCount = 0;
 // WATER PROBES
 //==================================================
 
-const int COMMON_PIN = D1;
-const int LOW_PIN    = D2;
-const int MID_PIN    = D5;
-const int FULL_PIN   = D6;
+const int COMMON_PIN = D1; // GND reference for water
+const int LOW_PIN    = D2; // Low probe
+const int MID_PIN    = D5; // Mid probe
+const int FULL_PIN   = D6; // Full probe
+
+// Set to true to use ESP8266 internal INPUT_PULLUP resistors (No external resistors needed!).
+// Disconnected/air = 0% (HIGH on pin), Water touching COMMON_PIN(GND) = 33%/66%/100% (LOW on pin).
+const bool USE_INTERNAL_PULLUP = true;
 
 
 //==================================================
@@ -100,36 +104,51 @@ bool connectWiFi()
 
 int readWaterLevel()
 {
-  digitalWrite(COMMON_PIN, HIGH);
-  delay(50);
+  if (USE_INTERNAL_PULLUP)
+  {
+    // COMMON_PIN output is LOW (GND)
+    digitalWrite(COMMON_PIN, LOW);
+    delay(50);
 
-  int low  = digitalRead(LOW_PIN);
-  int mid  = digitalRead(MID_PIN);
-  int full = digitalRead(FULL_PIN);
+    // Active-LOW: In water = LOW (0), Disconnected/Air = HIGH (1 due to pull-up)
+    bool low  = (digitalRead(LOW_PIN) == LOW);
+    bool mid  = (digitalRead(MID_PIN) == LOW);
+    bool full = (digitalRead(FULL_PIN) == LOW);
 
-  digitalWrite(COMMON_PIN, LOW);
+    Serial.println();
+    Serial.println("===== PROBE TEST (INPUT_PULLUP Active-LOW) =====");
+    Serial.print("LOW  (D2/GPIO4)  = "); Serial.println(low ? "DETECTED (WATER)" : "OPEN (AIR)");
+    Serial.print("MID  (D5/GPIO14) = "); Serial.println(mid ? "DETECTED (WATER)" : "OPEN (AIR)");
+    Serial.print("FULL (D6/GPIO12) = "); Serial.println(full ? "DETECTED (WATER)" : "OPEN (AIR)");
 
-  Serial.println();
-  Serial.println("===== PROBE TEST =====");
-  Serial.print("LOW  (D2/GPIO4)  = ");
-  Serial.println(low);
+    if (full) return 100;
+    if (mid)  return 66;
+    if (low)  return 33;
+    return 0;
+  }
+  else
+  {
+    // Active-HIGH Mode (Requires external 10k ohm pull-down resistors to GND on D2, D5, D6)
+    digitalWrite(COMMON_PIN, HIGH);
+    delay(50);
 
-  Serial.print("MID  (D5/GPIO14) = ");
-  Serial.println(mid);
+    bool low  = (digitalRead(LOW_PIN) == HIGH);
+    bool mid  = (digitalRead(MID_PIN) == HIGH);
+    bool full = (digitalRead(FULL_PIN) == HIGH);
 
-  Serial.print("FULL (D6/GPIO12) = ");
-  Serial.println(full);
+    digitalWrite(COMMON_PIN, LOW);
 
-  if (full == HIGH)
-    return 100;
+    Serial.println();
+    Serial.println("===== PROBE TEST (External Pull-down Active-HIGH) =====");
+    Serial.print("LOW  (D2/GPIO4)  = "); Serial.println(low ? "DETECTED (WATER)" : "OPEN (AIR)");
+    Serial.print("MID  (D5/GPIO14) = "); Serial.println(mid ? "DETECTED (WATER)" : "OPEN (AIR)");
+    Serial.print("FULL (D6/GPIO12) = "); Serial.println(full ? "DETECTED (WATER)" : "OPEN (AIR)");
 
-  if (mid == HIGH)
-    return 66;
-
-  if (low == HIGH)
-    return 33;
-
-  return 0;
+    if (full) return 100;
+    if (mid)  return 66;
+    if (low)  return 33;
+    return 0;
+  }
 }
 
 //==================================================
@@ -528,11 +547,20 @@ void setup()
 
   pinMode(COMMON_PIN, OUTPUT);
 
-  digitalWrite(COMMON_PIN, LOW);
-
-  pinMode(LOW_PIN, INPUT);
-  pinMode(MID_PIN, INPUT);
-  pinMode(FULL_PIN, INPUT);
+  if (USE_INTERNAL_PULLUP)
+  {
+    digitalWrite(COMMON_PIN, LOW);
+    pinMode(LOW_PIN, INPUT_PULLUP);
+    pinMode(MID_PIN, INPUT_PULLUP);
+    pinMode(FULL_PIN, INPUT_PULLUP);
+  }
+  else
+  {
+    digitalWrite(COMMON_PIN, LOW);
+    pinMode(LOW_PIN, INPUT);
+    pinMode(MID_PIN, INPUT);
+    pinMode(FULL_PIN, INPUT);
+  }
 
 
   //================================================

@@ -11,18 +11,27 @@ const char* ssid = "TIC_5G-PREM";
 const char* password = "prem@123";
 
 //==================================================
-// DEVICE CONFIGURATION
+// DEVICE CONFIGURATION & STATE
 //==================================================
 const char* DEVICE_ID = "esp8266_device_02";
 String motorStatus = "stopped";
-String pendingDeviceMsg = "esp8266_device_02 booted normally";
+String pendingDeviceMsg = "esp8266motor booted normally";
 int iterationCount = 0;
 
+// Water Level & Settings Configuration
+int minPercentage = 33;       // Minimum threshold to turn ON motor
+int maxPercentage = 100;      // Maximum threshold to turn OFF motor
+bool waterLevelMode = true;   // Water Level Mode (true = Auto mode ENABLED, false = MANUAL mode)
+
 //==================================================
-// RELAY PIN DEFINITION
+// WATER PROBE PINS (ESP8266)
 //==================================================
-// D1 (GPIO5) controls the Relay for Water Pump Motor
-const int RELAY_PIN = D1;
+const int COMMON_PIN = D1; // Reference probe pin (GND output)
+const int LOW_PIN    = D2; // Low level probe (33%)
+const int MID_PIN    = D5; // Mid level probe (66%)
+const int FULL_PIN   = D6; // Full level probe (100%)
+
+const bool USE_INTERNAL_PULLUP = true;
 
 //==================================================
 // SERVERS LIST
@@ -38,6 +47,90 @@ const char* serverList[] = {
 
 const int SERVER_COUNT = sizeof(serverList) / sizeof(serverList[0]);
 int activeServer = -1;
+
+//==================================================
+// WATER LEVEL PROBE READER
+//==================================================
+int readWaterLevel() {
+  if (USE_INTERNAL_PULLUP) {
+    digitalWrite(COMMON_PIN, LOW);
+    delay(30);
+
+    bool low  = (digitalRead(LOW_PIN) == LOW);
+    bool mid  = (digitalRead(MID_PIN) == LOW);
+    bool full = (digitalRead(FULL_PIN) == LOW);
+
+    Serial.println();
+    Serial.println("===== WATER PROBE READINGS =====");
+    Serial.print("LOW  (D2)  = "); Serial.println(low ? "WATER DETECTED" : "OPEN AIR");
+    Serial.print("MID  (D5)  = "); Serial.println(mid ? "WATER DETECTED" : "OPEN AIR");
+    Serial.print("FULL (D6)  = "); Serial.println(full ? "WATER DETECTED" : "OPEN AIR");
+
+    if (full) return 100;
+    if (mid)  return 66;
+    if (low)  return 33;
+    return 0;
+  } else {
+    digitalWrite(COMMON_PIN, HIGH);
+    delay(30);
+
+    bool low  = (digitalRead(LOW_PIN) == HIGH);
+    bool mid  = (digitalRead(MID_PIN) == HIGH);
+    bool full = (digitalRead(FULL_PIN) == HIGH);
+
+    digitalWrite(COMMON_PIN, LOW);
+
+    if (full) return 100;
+    if (mid)  return 66;
+    if (low)  return 33;
+    return 0;
+  }
+}
+
+//==================================================
+// MOTOR & SERIAL RELAY CONTROL FOR ARDUINO PIN 7
+//==================================================
+void setMotorState(bool start) {
+  if (start) {
+    motorStatus = "started";
+    // Send Serial command to Arduino (controls Relay on Pin 7)
+    Serial.println("MOTOR_ON");
+    Serial.println(">>> ESP8266: SENT 'MOTOR_ON' TO ARDUINO (RELAY PIN 7 HIGH) <<<");
+  } else {
+    motorStatus = "stopped";
+    // Send Serial command to Arduino (controls Relay on Pin 7)
+    Serial.println("MOTOR_OFF");
+    Serial.println(">>> ESP8266: SENT 'MOTOR_OFF' TO ARDUINO (RELAY PIN 7 LOW) <<<");
+  }
+}
+
+//==================================================
+// AUTO WATER LEVEL MODE EVALUATION
+//==================================================
+void evaluateAutoWaterLevelMode(int waterLevel) {
+  if (!waterLevelMode) {
+    Serial.println("Auto Water Level Mode is DISABLED (Manual Mode Active).");
+    return;
+  }
+
+  Serial.print("Auto Water Level Mode ACTIVE. Level: ");
+  Serial.print(waterLevel);
+  Serial.print("% | Target Range: [Min: ");
+  Serial.print(minPercentage);
+  Serial.print("%, Max: ");
+  Serial.print(maxPercentage);
+  Serial.println("%]");
+
+  if (waterLevel <= minPercentage && motorStatus != "started") {
+    Serial.println(">>> AUTO TRIGGER: Water Level <= Min Threshold! Starting Motor... <<<");
+    setMotorState(true);
+    pendingDeviceMsg = "Auto Trigger: Tank level (" + String(waterLevel) + "%) <= Min (" + String(minPercentage) + "%). Motor STARTED.";
+  } else if (waterLevel >= maxPercentage && motorStatus != "stopped") {
+    Serial.println(">>> AUTO TRIGGER: Water Level >= Max Threshold! Stopping Motor... <<<");
+    setMotorState(false);
+    pendingDeviceMsg = "Auto Trigger: Tank level (" + String(waterLevel) + "%) >= Max (" + String(maxPercentage) + "%). Motor STOPPED.";
+  }
+}
 
 //==================================================
 // WIFI CONNECTION
@@ -168,15 +261,19 @@ bool discoverServer() {
 }
 
 //==================================================
-// BUILD TELEMETRY JSON
+// BUILD TELEMETRY JSON WITH WATER LEVEL & SETTINGS
 //==================================================
-String buildTelemetry(const String& ack, const String& message) {
+String buildTelemetry(const String& ack, const String& message, int waterLevel) {
   StaticJsonDocument<512> doc;
 
   doc["id"] = DEVICE_ID;
 
   JsonObject sensor = doc.createNestedObject("sensor values");
+  sensor["water_level"] = waterLevel;
   sensor["motor_status"] = motorStatus;
+  sensor["min_percentage"] = minPercentage;
+  sensor["max_percentage"] = maxPercentage;
+  sensor["water_level_mode"] = waterLevelMode;
 
   doc["ack"] = ack;
   doc["message"] = message;
@@ -184,21 +281,6 @@ String buildTelemetry(const String& ack, const String& message) {
   String body;
   serializeJson(doc, body);
   return body;
-}
-
-//==================================================
-// APPLY MOTOR STATE TO RELAY
-//==================================================
-void setMotorState(bool start) {
-  if (start) {
-    digitalWrite(RELAY_PIN, HIGH);
-    motorStatus = "started";
-    Serial.println(">>> RELAY ON (MOTOR RUNNING) <<<");
-  } else {
-    digitalWrite(RELAY_PIN, LOW);
-    motorStatus = "stopped";
-    Serial.println(">>> RELAY OFF (MOTOR STOPPED) <<<");
-  }
 }
 
 //==================================================
@@ -211,13 +293,18 @@ bool sendTelemetry() {
     }
   }
 
+  int currentWaterLevel = readWaterLevel();
+
+  // Evaluate Auto Water Level Mode rules before sending telemetry
+  evaluateAutoWaterLevelMode(currentWaterLevel);
+
   String ack = "dummy_ack";
   String message = pendingDeviceMsg;
 
-  String body = buildTelemetry(ack, message);
+  String body = buildTelemetry(ack, message, currentWaterLevel);
 
   Serial.println();
-  Serial.println("Sending telemetry:");
+  Serial.println("Sending telemetry payload:");
   Serial.println(body);
 
   String response;
@@ -235,7 +322,7 @@ bool sendTelemetry() {
   Serial.println("Server response:");
   Serial.println(response);
 
-  // Parse server command
+  // Parse server response command & settings
   StaticJsonDocument<512> responseDoc;
   DeserializationError error = deserializeJson(responseDoc, response);
 
@@ -259,13 +346,41 @@ bool sendTelemetry() {
     setMotorState(false);
     pendingDeviceMsg = "Motor stopped successfully.";
     commandExecuted = true;
+  } else if (command.startsWith("set_threshold:")) {
+    // Format: set_threshold:start_val:stop_val:auto_mode
+    // Example: set_threshold:33:100:1
+    int firstColon = command.indexOf(':');
+    int secondColon = command.indexOf(':', firstColon + 1);
+    int thirdColon = command.indexOf(':', secondColon + 1);
+
+    if (firstColon != -1 && secondColon != -1) {
+      String startStr = command.substring(firstColon + 1, secondColon);
+      String stopStr = (thirdColon != -1) ? command.substring(secondColon + 1, thirdColon) : command.substring(secondColon + 1);
+      String autoStr = (thirdColon != -1) ? command.substring(thirdColon + 1) : "1";
+
+      minPercentage = startStr.toInt();
+      maxPercentage = stopStr.toInt();
+      waterLevelMode = (autoStr.toInt() == 1 || autoStr.equalsIgnoreCase("true"));
+
+      pendingDeviceMsg = "Settings updated: Min=" + String(minPercentage) + "%, Max=" + String(maxPercentage) + "%, AutoMode=" + String(waterLevelMode ? "ON" : "OFF");
+      Serial.println(pendingDeviceMsg);
+      commandExecuted = true;
+    }
+  } else if (command == "auto_on") {
+    waterLevelMode = true;
+    pendingDeviceMsg = "Water Level Mode enabled (Auto mode ON).";
+    commandExecuted = true;
+  } else if (command == "auto_off") {
+    waterLevelMode = false;
+    pendingDeviceMsg = "Water Level Mode disabled (Manual mode ON).";
+    commandExecuted = true;
   }
 
   if (commandExecuted) {
     Serial.println();
     Serial.println("Sending immediate command confirmation...");
 
-    String confirmBody = buildTelemetry("cmd_executed_ack", pendingDeviceMsg);
+    String confirmBody = buildTelemetry("cmd_executed_ack", pendingDeviceMsg, currentWaterLevel);
     Serial.println("Confirmation JSON:");
     Serial.println(confirmBody);
 
@@ -291,14 +406,30 @@ void setup() {
   delay(1000);
 
   Serial.println();
-  Serial.println("====================================");
+  Serial.println("==============================================");
   Serial.println("ESP8266 WATER MOTOR CONTROLLER STARTING");
-  Serial.println("====================================");
+  Serial.println("Sending Water Level & Settings to Server");
+  Serial.println("Sending Serial Motor Commands to Arduino Pin 7");
+  Serial.println("==============================================");
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);
 
-  pinMode(RELAY_PIN, OUTPUT);
-  setMotorState(false); // Default motor state: STOPPED
+  // Configure Water Level Probe Pins
+  pinMode(COMMON_PIN, OUTPUT);
+  if (USE_INTERNAL_PULLUP) {
+    digitalWrite(COMMON_PIN, LOW);
+    pinMode(LOW_PIN, INPUT_PULLUP);
+    pinMode(MID_PIN, INPUT_PULLUP);
+    pinMode(FULL_PIN, INPUT_PULLUP);
+  } else {
+    digitalWrite(COMMON_PIN, LOW);
+    pinMode(LOW_PIN, INPUT);
+    pinMode(MID_PIN, INPUT);
+    pinMode(FULL_PIN, INPUT);
+  }
+
+  // Default motor state: STOPPED
+  setMotorState(false);
 
   if (connectWiFi()) {
     discoverServer();
@@ -317,7 +448,7 @@ void loop() {
   sendTelemetry();
 
   if (iterationCount == 0) {
-    pendingDeviceMsg = "came to first iteration";
+    pendingDeviceMsg = "esp8266motor first iteration complete";
   }
 
   iterationCount++;

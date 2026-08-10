@@ -55,9 +55,27 @@ def telemetry(request):
             # Fetch active water level thresholds
             t_obj, _ = WaterThreshold.objects.get_or_create(id=1, defaults={"start_level": 33.0, "stop_level": 100.0, "auto_mode": True})
 
+            # Sync settings from sensor_values if reported by device
+            min_pct = sensor_values.get("min_percentage")
+            max_pct = sensor_values.get("max_percentage")
+            wl_mode = sensor_values.get("water_level_mode")
+            
+            threshold_updated = False
+            if min_pct is not None:
+                t_obj.start_level = float(min_pct)
+                threshold_updated = True
+            if max_pct is not None:
+                t_obj.stop_level = float(max_pct)
+                threshold_updated = True
+            if wl_mode is not None:
+                t_obj.auto_mode = bool(wl_mode)
+                threshold_updated = True
+            if threshold_updated:
+                t_obj.save()
+
             # AUTOMATIC THRESHOLD MOTOR CONTROL
-            # When esp8266_device_01 sends water level, evaluate auto start/stop rules for esp8266_device_02
-            if device_id == "esp8266_device_01" and water_level is not None and t_obj.auto_mode:
+            # Evaluate auto start/stop rules when water level is reported by device_01 or device_02
+            if water_level is not None and t_obj.auto_mode:
                 w_val = float(water_level)
                 
                 # Fetch latest status for motor controller (esp8266_device_02)

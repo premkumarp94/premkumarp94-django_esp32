@@ -50,4 +50,15 @@ class DeviceLog(models.Model):
         return f"{self.device_id} - {self.message} at {self.timestamp}"
 
 
+class WaterThreshold(models.Model):
+    start_level = models.FloatField(default=33.0)
+    stop_level = models.FloatField(default=100.0)
+    auto_mode = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Start <= {self.start_level}%, Stop >= {self.stop_level}% (Auto: {self.auto_mode})"
+
+
+
 

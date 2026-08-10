@@ -1,9 +1,8 @@
 import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from api.models import TelemetryReading, DeviceCommand, DeviceLog
+from api.models import TelemetryReading, DeviceCommand, DeviceLog, WaterThreshold
 
-# Simple in-memory counter to prune old records periodically
 request_counter = 0
 
 @csrf_exempt
@@ -11,10 +10,8 @@ def telemetry(request):
     global request_counter
     if request.method == 'POST':
         try:
-            # Decode the incoming JSON payload
             data = json.loads(request.body)
             
-            # Extract data points based on format
             device_id = data.get("id", "unknown")
             sensor_values = data.get("sensor values", {})
             temperature = sensor_values.get("temperature")
@@ -25,7 +22,7 @@ def telemetry(request):
             message = data.get("message", "none")
             
             # Save telemetry reading to the database
-            if temperature is not None or humidity is not None or water_level is not None:
+            if temperature is not None or humidity is not None or water_level is not None or motor_status is not None:
                 TelemetryReading.objects.create(
                     device_id=device_id,
                     temperature=float(temperature) if temperature is not None else None,
@@ -34,7 +31,7 @@ def telemetry(request):
                     motor_status=motor_status
                 )
 
-            # Auto-prune old readings every 50 requests to keep SQLite table small & fast
+            # Auto-prune old readings periodically
             request_counter += 1
             if request_counter % 50 == 0:
                 try:
@@ -44,45 +41,77 @@ def telemetry(request):
                 except Exception as prune_err:
                     print(f"Telemetry pruning warning: {prune_err}")
 
-            # Save transition log if a valid message is sent by device
+            # Save device log
             if message and message not in ["none", "", "device_normal_operation"]:
                 DeviceLog.objects.create(
                     device_id=device_id,
                     message=message
                 )
             
-            # Print to Django server log
             print(f"\n[Django Telemetry] Device: {device_id}")
             print(f"  - Sensor Values: Water Level = {water_level}%, Temp = {temperature} C, Humidity = {humidity} %, Motor = {motor_status}")
-            print(f"  - Device Acknowledgment: {ack}")
-            print(f"  - Device Message: {message}")
+            print(f"  - Acknowledgment: {ack} | Message: {message}")
             
-            # Check for any pending queued commands
+            # Fetch active water level thresholds
+            t_obj, _ = WaterThreshold.objects.get_or_create(id=1, defaults={"start_level": 33.0, "stop_level": 100.0, "auto_mode": True})
+
+            # AUTOMATIC THRESHOLD MOTOR CONTROL
+            # When esp8266_device_01 sends water level, evaluate auto start/stop rules for esp8266_device_02
+            if device_id == "esp8266_device_01" and water_level is not None and t_obj.auto_mode:
+                w_val = float(water_level)
+                
+                # Fetch latest status for motor controller (esp8266_device_02)
+                latest_motor_dev = TelemetryReading.objects.filter(device_id="esp8266_device_02").order_by('-timestamp').first()
+                curr_motor_status = latest_motor_dev.motor_status if latest_motor_dev else "stopped"
+
+                if w_val <= t_obj.start_level and curr_motor_status != "started":
+                    print(f"  [AUTO THRESHOLD] Water level ({w_val}%) <= Start threshold ({t_obj.start_level}%). Queueing START for esp8266_device_02")
+                    DeviceCommand.objects.create(device_id="esp8266_device_02", command="start_motor")
+                    TelemetryReading.objects.create(device_id="esp8266_device_02", motor_status="started")
+                    DeviceLog.objects.create(
+                        device_id="esp8266_device_02",
+                        message=f"Auto Trigger: Tank water level ({w_val:.0f}%) <= Start Threshold ({t_obj.start_level:.0f}%). Motor STARTED."
+                    )
+                elif w_val >= t_obj.stop_level and curr_motor_status != "stopped":
+                    print(f"  [AUTO THRESHOLD] Water level ({w_val}%) >= Stop threshold ({t_obj.stop_level}%). Queueing STOP for esp8266_device_02")
+                    DeviceCommand.objects.create(device_id="esp8266_device_02", command="stop_motor")
+                    TelemetryReading.objects.create(device_id="esp8266_device_02", motor_status="stopped")
+                    DeviceLog.objects.create(
+                        device_id="esp8266_device_02",
+                        message=f"Auto Trigger: Tank water level ({w_val:.0f}%) >= Stop Threshold ({t_obj.stop_level:.0f}%). Motor STOPPED."
+                    )
+
+            # Check pending queued commands for this reporting device
             pending_cmd = DeviceCommand.objects.filter(device_id=device_id, is_executed=False).first()
             if pending_cmd:
-                if pending_cmd.command in ["start_motor", "stop_motor", "gear_front", "gear_back", "gear_stop", "front", "back", "stop"] or pending_cmd.command.startswith("set_servo"):
-                    server_cmd = pending_cmd.command
-                else:
-                    server_cmd = ""
-                
-                # Mark as executed since it has been processed
+                server_cmd = pending_cmd.command
                 pending_cmd.is_executed = True
                 pending_cmd.save()
 
-                # Optimistically update latest reading for this device so web page reflects state immediately
                 latest_reading = TelemetryReading.objects.filter(device_id=device_id).order_by('-timestamp').first()
                 if latest_reading:
                     if server_cmd in ["start_motor", "gear_front", "front"]:
-                        latest_reading.motor_status = "started" if device_id == "esp8266_device_01" else "front"
+                        latest_reading.motor_status = "started"
                         latest_reading.save()
                     elif server_cmd in ["stop_motor", "gear_stop", "stop"]:
                         latest_reading.motor_status = "stopped"
                         latest_reading.save()
-                    elif server_cmd in ["gear_back", "back"]:
-                        latest_reading.motor_status = "back"
-                        latest_reading.save()
             else:
-                server_cmd = ""
+                # If esp8266_device_02 asks for command and auto mode is enabled, evaluate latest device_01 reading
+                if device_id == "esp8266_device_02" and t_obj.auto_mode:
+                    dev1_reading = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
+                    if dev1_reading and dev1_reading.water_level is not None:
+                        w_val = dev1_reading.water_level
+                        if w_val <= t_obj.start_level and motor_status != "started":
+                            server_cmd = "start_motor"
+                        elif w_val >= t_obj.stop_level and motor_status != "stopped":
+                            server_cmd = "stop_motor"
+                        else:
+                            server_cmd = ""
+                    else:
+                        server_cmd = ""
+                else:
+                    server_cmd = ""
                 
             print(f"  => Sending response to {device_id}: Command='{server_cmd}'")
             
@@ -101,5 +130,3 @@ def telemetry(request):
         "status": "error",
         "message": "Only POST requests are allowed"
     }, status=405)
-
-

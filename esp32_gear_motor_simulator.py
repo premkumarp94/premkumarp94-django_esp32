@@ -6,10 +6,10 @@ import threading
 from datetime import datetime
 
 # Configurations
-DEVICE_ID = "esp32_gear_motor_02"  # Unique device name for Gear Motor ESP32
+DEVICE_ID = "esp8266_device_02"  # Unique device name for Water Motor ESP8266
 loop_interval = 5  # sends telemetry data every 5 seconds
-motor_status = "stopped"  # "stopped", "front" (forward), "back" (reverse)
-pending_device_msg = "ESP32 Gear Motor booted normally"
+motor_status = "stopped"  # "stopped", "started"
+pending_device_msg = "ESP8266 Motor Controller booted normally"
 iteration_count = 0
 
 # Servo Motor Configuration (Angle 1 and Angle 2)

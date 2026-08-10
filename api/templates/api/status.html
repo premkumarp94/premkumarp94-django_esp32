@@ -627,112 +627,103 @@
         </div>
 
 
-        <!-- CARD 2: ESP32 Gear Motor Client (esp32_gear_motor_02) -->
-        <div class="device-card" id="card-esp32_gear_motor_02">
+        <!-- CARD 2: ESP8266 Motor Controller (esp8266_device_02) -->
+        <div class="device-card" id="card-esp8266_device_02">
             <div class="card-header">
                 <div class="device-title">
                     <span class="status-dot"></span>
-                    <span class="device-name">Gear Motor Simulator</span>
+                    <span class="device-name">Water Pump Motor Controller</span>
                 </div>
-                <span class="device-badge" id="badge-esp32_gear_motor_02">esp32_gear_motor_02</span>
+                <span class="device-badge" id="badge-esp8266_device_02">esp8266_device_02</span>
             </div>
 
             <div class="readings-container">
-                <!-- Motor Direction / State Box -->
-                <div class="reading-box full-width motor-state {% if device_02.motor_status == 'front' %}front-dir{% elif device_02.motor_status == 'back' %}back-dir{% endif %}" id="motor-box-esp32_gear_motor_02">
+                <!-- Motor State Box -->
+                <div class="reading-box full-width motor-state {% if device_02.motor_status == 'started' %}running{% endif %}" id="motor-box-esp8266_device_02">
                     <div class="reading-label">
-                        <span>Gear Motor Motion Direction</span>
+                        <span>Water Pump Motor Status</span>
                         <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2v20M17 5l-5-5-5 5M17 19l-5 5-5-5"></path>
+                            <circle cx="12" cy="12" r="1"></circle>
+                            <path d="M12 12c0-3 2.5-5.5 5.5-5.5S23 9 23 12c0 3-2.5 5.5-5.5 5.5S12 15 12 12z"></path>
+                            <path d="M12 12c3 0 5.5 2.5 5.5 5.5S15 23 12 23c-3 0-5.5-2.5-5.5-5.5S9 12 12 12z"></path>
                         </svg>
                     </div>
-                    <div class="status-pill {% if device_02.motor_status == 'front' %}front{% elif device_02.motor_status == 'back' %}back{% else %}stopped{% endif %}" id="motor-val-esp32_gear_motor_02">
-                        {% if device_02.motor_status == 'front' %}
-                            ⏩ FRONT (FORWARD)
-                        {% elif device_02.motor_status == 'back' %}
-                            ⏪ BACK (REVERSE)
-                        {% else %}
-                            ⏹️ STOPPED
-                        {% endif %}
+                    <div class="status-pill {% if device_02.motor_status == 'started' %}running{% else %}stopped{% endif %}" id="motor-val-esp8266_device_02">
+                        {% if device_02.motor_status == 'started' %}RUNNING{% else %}STOPPED{% endif %}
                     </div>
                 </div>
 
-                <!-- Motor Temperature -->
-                <div class="reading-box temp">
-                    <div class="reading-label">
-                        <span>Motor Temp</span>
-                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2">
-                            <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path>
-                        </svg>
+                <!-- Active Threshold Summary -->
+                <div class="reading-box full-width" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px 14px; border-radius: 8px;">
+                    <div class="reading-label" style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px;">
+                        <span>Auto Control Trigger Settings</span>
+                        <span style="font-size: 0.75rem; font-weight: 600; color: {% if threshold.auto_mode %}#4ade80{% else %}#f87171{% endif %};" id="auto-badge-text">
+                            {% if threshold.auto_mode %}ACTIVE{% else %}DISABLED{% endif %}
+                        </span>
                     </div>
-                    <div class="reading-val" id="temp-esp32_gear_motor_02">
-                        {% if device_02.temperature %}{{ device_02.temperature|floatformat:1 }}°C{% else %}--{% endif %}
-                    </div>
-                </div>
-
-                <!-- Motor Speed / RPM -->
-                <div class="reading-box humidity">
-                    <div class="reading-label">
-                        <span>Speed RPM</span>
-                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                        </svg>
-                    </div>
-                    <div class="reading-val" id="rpm-esp32_gear_motor_02">
-                        {% if device_02.humidity %}{{ device_02.humidity|floatformat:0 }} RPM{% else %}0 RPM{% endif %}
+                    <div style="font-size: 0.85rem; color: #e2e8f0;">
+                        Start Motor at ≤ <strong id="thresh-start-val" style="color: #38bdf8;">{{ threshold.start_level|floatformat:0 }}%</strong> water level<br>
+                        Stop Motor at ≥ <strong id="thresh-stop-val" style="color: #4ade80;">{{ threshold.stop_level|floatformat:0 }}%</strong> water level
                     </div>
                 </div>
             </div>
 
-            <!-- Gear Motor Controls: Front, Back, Stop -->
-            <div class="controls-grid three-col">
-                <button class="btn-action btn-front" onclick="sendDeviceCommand('esp32_gear_motor_02', 'gear_front')">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polygon points="13 19 22 12 13 5 13 19"></polygon>
-                        <polygon points="2 19 11 12 2 5 2 19"></polygon>
+            <!-- Motor Manual Controls: Start, Stop -->
+            <div class="controls-grid two-col">
+                <button class="btn-action btn-start" onclick="sendDeviceCommand('esp8266_device_02', 'start_motor')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                        <line x1="12" y1="2" x2="12" y2="12"></line>
                     </svg>
-                    FRONT
+                    Start Motor
                 </button>
-                <button class="btn-action btn-back" onclick="sendDeviceCommand('esp32_gear_motor_02', 'gear_back')">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polygon points="11 19 2 12 11 5 11 19"></polygon>
-                        <polygon points="22 19 13 12 22 5 22 19"></polygon>
-                    </svg>
-                    BACK
-                </button>
-                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp32_gear_motor_02', 'gear_stop')">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp8266_device_02', 'stop_motor')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                     </svg>
-                    STOP
+                    Stop Motor
                 </button>
             </div>
 
-            <!-- Servo Motor Angle Configuration -->
+            <!-- Water Level Threshold Configuration Input -->
             <div class="servo-inputs-container">
-                <div class="servo-title">Servo Motor Angle Configuration</div>
+                <div class="servo-title">Water Level Auto-Start/Stop Configuration</div>
                 <div class="servo-fields">
                     <div class="servo-field">
-                        <label for="servo-angle1-input">Angle 1 (°)</label>
-                        <input type="number" id="servo-angle1-input" value="30" min="0" max="180" placeholder="e.g. 30">
+                        <label for="thresh-start-input">Start Percentage (%)</label>
+                        <select id="thresh-start-input" style="width: 100%; padding: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px;">
+                            <option value="0" {% if threshold.start_level == 0 %}selected{% endif %}>0% (Empty)</option>
+                            <option value="33" {% if threshold.start_level == 33 %}selected{% endif %}>33% (Low)</option>
+                            <option value="66" {% if threshold.start_level == 66 %}selected{% endif %}>66% (Mid)</option>
+                            <option value="100" {% if threshold.start_level == 100 %}selected{% endif %}>100% (Full)</option>
+                        </select>
                     </div>
                     <div class="servo-field">
-                        <label for="servo-angle2-input">Angle 2 (°)</label>
-                        <input type="number" id="servo-angle2-input" value="120" min="0" max="180" placeholder="e.g. 120">
+                        <label for="thresh-stop-input">Stop Percentage (%)</label>
+                        <select id="thresh-stop-input" style="width: 100%; padding: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px;">
+                            <option value="33" {% if threshold.stop_level == 33 %}selected{% endif %}>33% (Low)</option>
+                            <option value="66" {% if threshold.stop_level == 66 %}selected{% endif %}>66% (Mid)</option>
+                            <option value="100" {% if threshold.stop_level == 100 %}selected{% endif %}>100% (Full)</option>
+                        </select>
                     </div>
                 </div>
-                <button class="btn-action btn-servo" onclick="sendServoAngles('esp32_gear_motor_02')">
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.85rem; color: #cbd5e1;">
+                    <input type="checkbox" id="auto-mode-checkbox" {% if threshold.auto_mode %}checked{% endif %} style="width: 16px; height: 16px; cursor: pointer;">
+                    <label for="auto-mode-checkbox" style="cursor: pointer;">Enable Automatic Motor Triggering based on esp8266_device_01</label>
+                </div>
+                <button class="btn-action btn-servo" onclick="saveWaterThresholds()" style="margin-top: 12px; background: linear-gradient(135deg, #0284c7, #2563eb);">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
                     </svg>
-                    Apply Servo Angles
+                    Save Water Threshold Settings
                 </button>
             </div>
 
             <div class="card-footer">
                 <span>Last payload:</span>
-                <span class="timestamp-text" id="time-esp32_gear_motor_02">{{ device_02.timestamp }}</span>
+                <span class="timestamp-text" id="time-esp8266_device_02">{{ device_02.timestamp }}</span>
             </div>
         </div>
 
@@ -798,22 +789,18 @@
                     motorVal.textContent = 'STOPPED';
                 }
             }
-        } else if (deviceId === 'esp32_gear_motor_02') {
-            const motorBox2 = document.getElementById('motor-box-esp32_gear_motor_02');
-            const motorVal2 = document.getElementById('motor-val-esp32_gear_motor_02');
+        } else if (deviceId === 'esp8266_device_02') {
+            const motorBox2 = document.getElementById('motor-box-esp8266_device_02');
+            const motorVal2 = document.getElementById('motor-val-esp8266_device_02');
             if (motorBox2 && motorVal2) {
-                if (['gear_front', 'front', 'start_motor'].includes(commandName)) {
-                    motorBox2.className = 'reading-box full-width motor-state front-dir';
-                    motorVal2.className = 'status-pill front';
-                    motorVal2.textContent = '⏩ FRONT (FORWARD)';
-                } else if (['gear_back', 'back'].includes(commandName)) {
-                    motorBox2.className = 'reading-box full-width motor-state back-dir';
-                    motorVal2.className = 'status-pill back';
-                    motorVal2.textContent = '⏪ BACK (REVERSE)';
-                } else if (['gear_stop', 'stop_motor', 'stop'].includes(commandName)) {
+                if (commandName === 'start_motor') {
+                    motorBox2.className = 'reading-box full-width motor-state running';
+                    motorVal2.className = 'status-pill running';
+                    motorVal2.textContent = 'RUNNING';
+                } else if (commandName === 'stop_motor') {
                     motorBox2.className = 'reading-box full-width motor-state';
                     motorVal2.className = 'status-pill stopped';
-                    motorVal2.textContent = '⏹️ STOPPED';
+                    motorVal2.textContent = 'STOPPED';
                 }
             }
         }
@@ -846,13 +833,14 @@
         }
     }
 
-    // Send Servo Angles Configuration Command
-    function sendServoAngles(deviceId) {
-        const a1El = document.getElementById('servo-angle1-input');
-        const a2El = document.getElementById('servo-angle2-input');
-        const angle1 = a1El ? (a1El.value || 30) : 30;
-        const angle2 = a2El ? (a2El.value || 120) : 120;
-        sendDeviceCommand(deviceId, `set_servo:${angle1}:${angle2}`);
+    // Save Water Level Start & Stop Threshold Configuration
+    async function saveWaterThresholds() {
+        const startVal = document.getElementById('thresh-start-input').value;
+        const stopVal = document.getElementById('thresh-stop-input').value;
+        const autoMode = document.getElementById('auto-mode-checkbox').checked ? 1 : 0;
+
+        const cmd = `set_threshold:${startVal}:${stopVal}:${autoMode}`;
+        await sendDeviceCommand('esp8266_device_02', cmd);
     }
 
     // Refresh Telemetry Data via JSON AJAX Polling
@@ -895,33 +883,39 @@
                         }
                     }
 
-                    // Update esp32_gear_motor_02
-                    const dev2 = data.devices['esp32_gear_motor_02'];
+                    // Update esp8266_device_02
+                    const dev2 = data.devices['esp8266_device_02'];
                     if (dev2) {
-                        const tempEl2 = document.getElementById('temp-esp32_gear_motor_02');
-                        const rpmEl2 = document.getElementById('rpm-esp32_gear_motor_02');
-                        const motorBox2 = document.getElementById('motor-box-esp32_gear_motor_02');
-                        const motorVal2 = document.getElementById('motor-val-esp32_gear_motor_02');
-                        const timeEl2 = document.getElementById('time-esp32_gear_motor_02');
+                        const motorBox2 = document.getElementById('motor-box-esp8266_device_02');
+                        const motorVal2 = document.getElementById('motor-val-esp8266_device_02');
+                        const timeEl2 = document.getElementById('time-esp8266_device_02');
 
-                        if (tempEl2 && dev2.temperature !== null) tempEl2.textContent = parseFloat(dev2.temperature).toFixed(1) + '°C';
-                        if (rpmEl2 && dev2.humidity !== null) rpmEl2.textContent = Math.round(dev2.humidity) + ' RPM';
                         if (timeEl2) timeEl2.textContent = dev2.timestamp || 'Never';
 
                         if (motorBox2 && motorVal2) {
-                            if (dev2.motor_status === 'front') {
-                                motorBox2.className = 'reading-box full-width motor-state front-dir';
-                                motorVal2.className = 'status-pill front';
-                                motorVal2.textContent = '⏩ FRONT (FORWARD)';
-                            } else if (dev2.motor_status === 'back') {
-                                motorBox2.className = 'reading-box full-width motor-state back-dir';
-                                motorVal2.className = 'status-pill back';
-                                motorVal2.textContent = '⏪ BACK (REVERSE)';
+                            if (dev2.motor_status === 'started') {
+                                motorBox2.className = 'reading-box full-width motor-state running';
+                                motorVal2.className = 'status-pill running';
+                                motorVal2.textContent = 'RUNNING';
                             } else {
                                 motorBox2.className = 'reading-box full-width motor-state';
                                 motorVal2.className = 'status-pill stopped';
-                                motorVal2.textContent = '⏹️ STOPPED';
+                                motorVal2.textContent = 'STOPPED';
                             }
+                        }
+                    }
+
+                    // Update Threshold Display
+                    if (data.threshold) {
+                        const startEl = document.getElementById('thresh-start-val');
+                        const stopEl = document.getElementById('thresh-stop-val');
+                        const badgeEl = document.getElementById('auto-badge-text');
+
+                        if (startEl) startEl.textContent = Math.round(data.threshold.start_level) + '%';
+                        if (stopEl) stopEl.textContent = Math.round(data.threshold.stop_level) + '%';
+                        if (badgeEl) {
+                            badgeEl.textContent = data.threshold.auto_mode ? 'ACTIVE' : 'DISABLED';
+                            badgeEl.style.color = data.threshold.auto_mode ? '#4ade80' : '#f87171';
                         }
                     }
                 }

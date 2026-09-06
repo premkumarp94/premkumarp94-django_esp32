@@ -653,88 +653,7 @@
         <div class="subtitle">Automatic Fill Rate Detection, Timing Difference (75% → 100%) & Live ETA</div>
     </header>
 
-    <!-- LIVE FILL RATE & MOTOR DETECTION BANNER CARD -->
-    <section class="analytics-card">
-        <div class="analytics-header">
-            <div class="device-title">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2">
-                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-                </svg>
-                <span class="device-name">Live Fill Rate & Motor Intelligence</span>
-            </div>
-            <div class="motor-badge {% if fill_analytics.is_filling %}running{% elif device_01.water_level >= 100 %}full{% endif %}" id="motor-detected-badge">
-                <span class="status-dot {% if fill_analytics.is_filling %}online{% elif device_01.water_level >= 100 %}online{% else %}idle{% endif %}" id="motor-status-dot"></span>
-                <span id="motor-status-label">{{ fill_analytics.motor_status_text }}</span>
-            </div>
-        </div>
-
-        <div class="analytics-grid">
-            <!-- 1. TIME UNTIL 100% FULL (ETA) -->
-            <div class="metric-card featured">
-                <div class="metric-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    <span>Time Until 100% Full (ETA)</span>
-                </div>
-                <div class="metric-main-val" style="color: #38bdf8;" id="eta-countdown-val">
-                    {{ fill_analytics.eta_text }}
-                </div>
-                <div class="metric-sub" id="eta-target-text">
-                    {% if fill_analytics.is_filling %}Est. Complete: <strong>{{ fill_analytics.eta_target_time }}</strong>{% else %}Calculated automatically when water rises{% endif %}
-                </div>
-            </div>
-
-            <!-- 2. TIMING DIFFERENCE: 75% -> 100% -->
-            <div class="metric-card">
-                <div class="metric-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                    </svg>
-                    <span>75% → 100% Timing Difference</span>
-                </div>
-                <div class="metric-main-val" style="color: #34d399;" id="timing-75-100-val">
-                    {{ fill_analytics.timing_75_to_100_text }}
-                </div>
-                <div class="metric-sub">
-                    Measured elapsed time between Probe 3 & Probe 4
-                </div>
-            </div>
-        </div>
-
-        <!-- 3. STEP-BY-STEP TRANSITION TIME BREAKDOWN -->
-        <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
-                    Probe Step Duration History
-                </span>
-                <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8;" id="rate-reference-label">
-                    Rate Reference: {{ fill_analytics.reference_source_label }}
-                </span>
-            </div>
-            <div class="step-timeline">
-                <div class="step-box">
-                    <span class="step-label">0% → 25%</span>
-                    <span class="step-time" id="step-0-25-val">{{ fill_analytics.step_timings.0_to_25.text }}</span>
-                </div>
-                <div class="step-box">
-                    <span class="step-label">25% → 50%</span>
-                    <span class="step-time" id="step-25-50-val">{{ fill_analytics.step_timings.25_to_50.text }}</span>
-                </div>
-                <div class="step-box">
-                    <span class="step-label">50% → 75%</span>
-                    <span class="step-time" id="step-50-75-val">{{ fill_analytics.step_timings.50_to_75.text }}</span>
-                </div>
-                <div class="step-box highlight">
-                    <span class="step-label" style="color: #38bdf8;">75% → 100%</span>
-                    <span class="step-time" style="color: #38bdf8;" id="step-75-100-val">{{ fill_analytics.step_timings.75_to_100.text }}</span>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Main Grid -->
+    <!-- Main Grid (Water Tank Indicator & Probe Array) -->
     <div class="dashboard-grid">
         
         <!-- Tank Visualizer Card -->
@@ -865,6 +784,87 @@
         </div>
 
     </div>
+
+    <!-- LIVE FILL RATE & MOTOR DETECTION BANNER CARD -->
+    <section class="analytics-card">
+        <div class="analytics-header">
+            <div class="device-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2">
+                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                </svg>
+                <span class="device-name">Live Fill Rate & Motor Intelligence</span>
+            </div>
+            <div class="motor-badge {% if fill_analytics.is_filling %}running{% elif device_01.water_level >= 100 %}full{% endif %}" id="motor-detected-badge">
+                <span class="status-dot {% if fill_analytics.is_filling %}online{% elif device_01.water_level >= 100 %}online{% else %}idle{% endif %}" id="motor-status-dot"></span>
+                <span id="motor-status-label">{{ fill_analytics.motor_status_text }}</span>
+            </div>
+        </div>
+
+        <div class="analytics-grid">
+            <!-- 1. TIME UNTIL 100% FULL (ETA) -->
+            <div class="metric-card featured">
+                <div class="metric-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Time Until 100% Full (ETA)</span>
+                </div>
+                <div class="metric-main-val" style="color: #38bdf8;" id="eta-countdown-val">
+                    {{ fill_analytics.eta_text }}
+                </div>
+                <div class="metric-sub" id="eta-target-text">
+                    {% if fill_analytics.is_filling %}Est. Complete: <strong>{{ fill_analytics.eta_target_time }}</strong>{% else %}Calculated automatically when water rises{% endif %}
+                </div>
+            </div>
+
+            <!-- 2. TIMING DIFFERENCE: 75% -> 100% -->
+            <div class="metric-card">
+                <div class="metric-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span>75% → 100% Timing Difference</span>
+                </div>
+                <div class="metric-main-val" style="color: #34d399;" id="timing-75-100-val">
+                    {{ fill_analytics.timing_75_to_100_text }}
+                </div>
+                <div class="metric-sub">
+                    Measured elapsed time between Probe 3 & Probe 4
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. STEP-BY-STEP TRANSITION TIME BREAKDOWN -->
+        <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
+                    Probe Step Duration History
+                </span>
+                <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8;" id="rate-reference-label">
+                    Rate Reference: {{ fill_analytics.reference_source_label }}
+                </span>
+            </div>
+            <div class="step-timeline">
+                <div class="step-box">
+                    <span class="step-label">0% → 25%</span>
+                    <span class="step-time" id="step-0-25-val">{{ fill_analytics.step_timings.0_to_25.text }}</span>
+                </div>
+                <div class="step-box">
+                    <span class="step-label">25% → 50%</span>
+                    <span class="step-time" id="step-25-50-val">{{ fill_analytics.step_timings.25_to_50.text }}</span>
+                </div>
+                <div class="step-box">
+                    <span class="step-label">50% → 75%</span>
+                    <span class="step-time" id="step-50-75-val">{{ fill_analytics.step_timings.50_to_75.text }}</span>
+                </div>
+                <div class="step-box highlight">
+                    <span class="step-label" style="color: #38bdf8;">75% → 100%</span>
+                    <span class="step-time" style="color: #38bdf8;" id="step-75-100-val">{{ fill_analytics.step_timings.75_to_100.text }}</span>
+                </div>
+            </div>
+        </div>
+    </section>
 
     <!-- Live System Activity Logs -->
     <section class="logs-card">

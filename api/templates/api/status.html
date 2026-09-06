@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ESP8266 4-Probe Water Tank Level Monitor</title>
+    <title>ESP8266 4-Probe Water Tank Level & Fill Analytics</title>
     
     <!-- Premium Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,6 +23,7 @@
             --accent-green: #10b981;
             --accent-amber: #f59e0b;
             --accent-red: #ef4444;
+            --accent-purple: #a855f7;
             --transition-speed: 0.3s;
         }
 
@@ -106,7 +107,7 @@
 
         @media (min-width: 768px) {
             .dashboard-grid {
-                grid-template-columns: 340px 1fr;
+                grid-template-columns: 320px 1fr;
             }
         }
 
@@ -207,6 +208,15 @@
             box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
         }
 
+        .tank-water-fill.filling-wave {
+            animation: waterWave 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes waterWave {
+            0% { filter: brightness(1) drop-shadow(0 0 10px #38bdf8); }
+            100% { filter: brightness(1.2) drop-shadow(0 0 20px #0ea5e9); }
+        }
+
         .tank-water-fill::before {
             content: '';
             position: absolute;
@@ -273,7 +283,7 @@
             background: rgba(0, 0, 0, 0.25);
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 14px;
-            padding: 14px 16px;
+            padding: 12px 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -313,7 +323,7 @@
         }
 
         .probe-state-badge {
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             font-weight: 700;
             padding: 4px 10px;
             border-radius: 999px;
@@ -338,7 +348,7 @@
             background: rgba(0, 0, 0, 0.25);
             border: 1px solid rgba(255, 255, 255, 0.04);
             border-radius: 16px;
-            padding: 16px;
+            padding: 14px 16px;
             display: flex;
             flex-direction: column;
             gap: 6px;
@@ -358,6 +368,156 @@
         .stat-val {
             font-family: 'Outfit', sans-serif;
             font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* FILL RATE & MOTOR ANALYTICS CARD */
+        .analytics-card {
+            background: linear-gradient(145deg, rgba(15, 23, 42, 0.7), rgba(30, 41, 59, 0.4));
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 24px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .analytics-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #38bdf8, #818cf8, #34d399);
+        }
+
+        .analytics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 12px;
+        }
+
+        .motor-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(100, 116, 139, 0.15);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.4s ease;
+        }
+
+        .motor-badge.running {
+            background: rgba(56, 189, 248, 0.18);
+            color: #38bdf8;
+            border-color: rgba(56, 189, 248, 0.4);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+        }
+
+        .motor-badge.full {
+            background: rgba(16, 185, 129, 0.18);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+
+        @media (min-width: 600px) {
+            .analytics-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .metric-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .metric-card.featured {
+            border-color: rgba(56, 189, 248, 0.3);
+            background: rgba(56, 189, 248, 0.05);
+        }
+
+        .metric-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .metric-main-val {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .metric-sub {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+        }
+
+        /* Step Transitions Micro-Timeline */
+        .step-timeline {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            padding-top: 14px;
+        }
+
+        .step-box {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 10px 8px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .step-box.highlight {
+            border-color: rgba(56, 189, 248, 0.35);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .step-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .step-time {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
             font-weight: 700;
             color: var(--text-primary);
         }
@@ -489,9 +649,90 @@
             <span class="status-dot {% if device_01.connection_status == 'idle' %}idle{% elif device_01.connection_status == 'offline' %}offline{% endif %}" id="header-status-dot"></span>
             ESP8266 Live Telemetry
         </div>
-        <h1>Tank Water Level Monitor</h1>
-        <div class="subtitle">Real-time 4-Probe Discrete Water Level & Telemetry Center</div>
+        <h1>Tank Water Level & Fill Analytics</h1>
+        <div class="subtitle">Automatic Fill Rate Detection, Timing Difference (75% → 100%) & Live ETA</div>
     </header>
+
+    <!-- LIVE FILL RATE & MOTOR DETECTION BANNER CARD -->
+    <section class="analytics-card">
+        <div class="analytics-header">
+            <div class="device-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2">
+                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                </svg>
+                <span class="device-name">Live Fill Rate & Motor Intelligence</span>
+            </div>
+            <div class="motor-badge {% if fill_analytics.is_filling %}running{% elif device_01.water_level >= 100 %}full{% endif %}" id="motor-detected-badge">
+                <span class="status-dot {% if fill_analytics.is_filling %}online{% elif device_01.water_level >= 100 %}online{% else %}idle{% endif %}" id="motor-status-dot"></span>
+                <span id="motor-status-label">{{ fill_analytics.motor_status_text }}</span>
+            </div>
+        </div>
+
+        <div class="analytics-grid">
+            <!-- 1. TIME UNTIL 100% FULL (ETA) -->
+            <div class="metric-card featured">
+                <div class="metric-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Time Until 100% Full (ETA)</span>
+                </div>
+                <div class="metric-main-val" style="color: #38bdf8;" id="eta-countdown-val">
+                    {{ fill_analytics.eta_text }}
+                </div>
+                <div class="metric-sub" id="eta-target-text">
+                    {% if fill_analytics.is_filling %}Est. Complete: <strong>{{ fill_analytics.eta_target_time }}</strong>{% else %}Calculated automatically when water rises{% endif %}
+                </div>
+            </div>
+
+            <!-- 2. TIMING DIFFERENCE: 75% -> 100% -->
+            <div class="metric-card">
+                <div class="metric-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span>75% → 100% Timing Difference</span>
+                </div>
+                <div class="metric-main-val" style="color: #34d399;" id="timing-75-100-val">
+                    {{ fill_analytics.timing_75_to_100_text }}
+                </div>
+                <div class="metric-sub">
+                    Measured elapsed time between Probe 3 & Probe 4
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. STEP-BY-STEP TRANSITION TIME BREAKDOWN -->
+        <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
+                    Probe Step Duration History
+                </span>
+                <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8;" id="rate-reference-label">
+                    Rate Reference: {{ fill_analytics.reference_source_label }}
+                </span>
+            </div>
+            <div class="step-timeline">
+                <div class="step-box">
+                    <span class="step-label">0% → 25%</span>
+                    <span class="step-time" id="step-0-25-val">{{ fill_analytics.step_timings.0_to_25.text }}</span>
+                </div>
+                <div class="step-box">
+                    <span class="step-label">25% → 50%</span>
+                    <span class="step-time" id="step-25-50-val">{{ fill_analytics.step_timings.25_to_50.text }}</span>
+                </div>
+                <div class="step-box">
+                    <span class="step-label">50% → 75%</span>
+                    <span class="step-time" id="step-50-75-val">{{ fill_analytics.step_timings.50_to_75.text }}</span>
+                </div>
+                <div class="step-box highlight">
+                    <span class="step-label" style="color: #38bdf8;">75% → 100%</span>
+                    <span class="step-time" style="color: #38bdf8;" id="step-75-100-val">{{ fill_analytics.step_timings.75_to_100.text }}</span>
+                </div>
+            </div>
+        </div>
+    </section>
 
     <!-- Main Grid -->
     <div class="dashboard-grid">
@@ -499,7 +740,7 @@
         <!-- Tank Visualizer Card -->
         <div class="glass-card tank-visualizer-card">
             <div class="tank-wrapper">
-                <div class="tank-water-fill" id="tank-water-fill" style="height: {% if device_01.water_level != None %}{{ device_01.water_level }}{% else %}0{% endif %}%;"></div>
+                <div class="tank-water-fill {% if fill_analytics.is_filling %}filling-wave{% endif %}" id="tank-water-fill" style="height: {% if device_01.water_level != None %}{{ device_01.water_level }}{% else %}0{% endif %}%;"></div>
                 <div class="tank-markers">
                     <div class="tank-marker-line"><span>100%</span><span>FULL</span></div>
                     <div class="tank-marker-line"><span>75%</span><span>HIGH</span></div>
@@ -654,8 +895,22 @@
 <script>
     const refreshBtn = document.getElementById('refresh-trigger');
     let lastSeenTimestampMs = null;
+    let liveEtaSeconds = null;
 
-    // Format seconds into human readable relative time
+    // Format seconds into human readable duration (e.g. 3m 45s)
+    function formatDuration(seconds) {
+        if (seconds === null || isNaN(seconds) || seconds < 0) return '--';
+        seconds = Math.round(seconds);
+        if (seconds < 60) return `${seconds}s`;
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        if (m < 60) return s > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${m}m`;
+        const h = Math.floor(m / 60);
+        const mRem = m % 60;
+        return `${h}h ${mRem.toString().padStart(2, '0')}m`;
+    }
+
+    // Format relative time (e.g. 5s ago)
     function formatRelativeTime(seconds) {
         if (seconds === null || isNaN(seconds)) return 'Never';
         if (seconds < 5) return 'Just now';
@@ -767,6 +1022,70 @@
         }
     }
 
+    // Update Fill Analytics UI
+    function updateFillAnalytics(analytics, currentLevel) {
+        if (!analytics) return;
+
+        const motorBadge = document.getElementById('motor-detected-badge');
+        const motorLabel = document.getElementById('motor-status-label');
+        const motorDot = document.getElementById('motor-status-dot');
+        const etaVal = document.getElementById('eta-countdown-val');
+        const etaSub = document.getElementById('eta-target-text');
+        const timing75_100 = document.getElementById('timing-75-100-val');
+        const fillWave = document.getElementById('tank-water-fill');
+
+        // Step timing elements
+        const s0_25 = document.getElementById('step-0-25-val');
+        const s25_50 = document.getElementById('step-25-50-val');
+        const s50_75 = document.getElementById('step-50-75-val');
+        const s75_100 = document.getElementById('step-75-100-val');
+
+        if (analytics.step_timings) {
+            if (s0_25) s0_25.textContent = analytics.step_timings['0_to_25']?.text || '--';
+            if (s25_50) s25_50.textContent = analytics.step_timings['25_to_50']?.text || '--';
+            if (s50_75) s50_75.textContent = analytics.step_timings['50_to_75']?.text || '--';
+            if (s75_100) s75_100.textContent = analytics.step_timings['75_to_100']?.text || '--';
+        }
+
+        const refLabel = document.getElementById('rate-reference-label');
+        if (refLabel && analytics.reference_source_label) {
+            refLabel.textContent = `Rate Reference: ${analytics.reference_source_label}`;
+        }
+
+        if (timing75_100) {
+            timing75_100.textContent = analytics.timing_75_to_100_text || '--';
+        }
+
+        if (analytics.is_filling) {
+            if (motorBadge) motorBadge.className = 'motor-badge running';
+            if (motorDot) motorDot.className = 'status-dot';
+            if (motorLabel) motorLabel.textContent = analytics.motor_status_text || 'Motor Running (Filling)';
+            if (fillWave) fillWave.classList.add('filling-wave');
+
+            liveEtaSeconds = analytics.eta_seconds;
+            if (etaVal) etaVal.textContent = analytics.eta_text || `~${formatDuration(liveEtaSeconds)} until 100%`;
+            if (etaSub) etaSub.innerHTML = `Est. Complete: <strong>${analytics.eta_target_time}</strong>`;
+        } else if (currentLevel >= 100) {
+            if (motorBadge) motorBadge.className = 'motor-badge full';
+            if (motorDot) motorDot.className = 'status-dot';
+            if (motorLabel) motorLabel.textContent = 'Tank Full (100%)';
+            if (fillWave) fillWave.classList.remove('filling-wave');
+
+            liveEtaSeconds = 0;
+            if (etaVal) etaVal.textContent = 'Tank Full (100%)';
+            if (etaSub) etaSub.textContent = 'Maximum capacity reached';
+        } else {
+            if (motorBadge) motorBadge.className = 'motor-badge';
+            if (motorDot) motorDot.className = 'status-dot idle';
+            if (motorLabel) motorLabel.textContent = 'Motor Idle (Standby)';
+            if (fillWave) fillWave.classList.remove('filling-wave');
+
+            liveEtaSeconds = null;
+            if (etaVal) etaVal.textContent = 'Motor Idle';
+            if (etaSub) etaSub.textContent = 'Calculated automatically when water rises';
+        }
+    }
+
     // Refresh Telemetry Data via JSON AJAX Polling
     async function fetchLatestData() {
         if (refreshBtn && refreshBtn.classList.contains('spinning')) return;
@@ -790,6 +1109,11 @@
                         if (dev1.seconds_ago !== undefined && dev1.seconds_ago !== null) {
                             lastSeenTimestampMs = Date.now() - (dev1.seconds_ago * 1000);
                             updateConnectionStatus(dev1.seconds_ago);
+                        }
+
+                        // Update Fill Analytics
+                        if (data.fill_analytics) {
+                            updateFillAnalytics(data.fill_analytics, dev1.water_level);
                         }
                     }
                 }
@@ -829,11 +1153,22 @@
         }
     }
 
-    // Live 1-second ticker to update 'Last Seen' continuously
+    // Live 1-second ticker to update 'Last Seen' and decrement ETA smoothly
     setInterval(() => {
         if (lastSeenTimestampMs !== null) {
             const elapsedSeconds = Math.max(0, (Date.now() - lastSeenTimestampMs) / 1000);
             updateConnectionStatus(elapsedSeconds);
+        }
+
+        // Decrement active ETA countdown
+        if (liveEtaSeconds !== null && liveEtaSeconds > 0) {
+            liveEtaSeconds = Math.max(0, liveEtaSeconds - 1);
+            const etaVal = document.getElementById('eta-countdown-val');
+            if (etaVal && liveEtaSeconds > 0) {
+                etaVal.textContent = `~${formatDuration(liveEtaSeconds)} until 100%`;
+            } else if (etaVal && liveEtaSeconds === 0) {
+                etaVal.textContent = '~Almost Full';
+            }
         }
     }, 1000);
 

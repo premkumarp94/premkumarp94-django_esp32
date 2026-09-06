@@ -1,3 +1,5 @@
+import datetime
+from django.utils import timezone
 from django.http import JsonResponse
 from django.shortcuts import render
 from api.models import TelemetryReading, DeviceLog
@@ -16,6 +18,7 @@ def status(request):
         if dev not in device_ids:
             device_ids.append(dev)
 
+    now = timezone.now()
     devices_data = {}
     for dev_id in device_ids:
         try:
@@ -24,13 +27,40 @@ def status(request):
             reading = None
 
         if reading:
+            seconds_ago = int((now - reading.timestamp).total_seconds())
+            if seconds_ago < 0:
+                seconds_ago = 0
+            
+            if seconds_ago < 10:
+                last_seen_text = "Just now"
+            elif seconds_ago < 60:
+                last_seen_text = f"{seconds_ago}s ago"
+            elif seconds_ago < 3600:
+                last_seen_text = f"{seconds_ago // 60}m ago"
+            elif seconds_ago < 86400:
+                last_seen_text = f"{seconds_ago // 3600}h ago"
+            else:
+                last_seen_text = f"{seconds_ago // 86400}d ago"
+
+            # Connection health
+            if seconds_ago <= 15:
+                connection_status = "online"
+            elif seconds_ago <= 60:
+                connection_status = "idle"
+            else:
+                connection_status = "offline"
+
             devices_data[dev_id] = {
                 "has_data": True,
                 "device_id": reading.device_id,
                 "temperature": reading.temperature,
                 "humidity": reading.humidity,
                 "water_level": reading.water_level,
-                "timestamp": reading.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                "timestamp": reading.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                "iso_timestamp": reading.timestamp.isoformat(),
+                "seconds_ago": seconds_ago,
+                "last_seen_text": last_seen_text,
+                "connection_status": connection_status
             }
         else:
             devices_data[dev_id] = {
@@ -39,7 +69,11 @@ def status(request):
                 "temperature": None,
                 "humidity": None,
                 "water_level": None,
-                "timestamp": "Never"
+                "timestamp": "Never",
+                "iso_timestamp": None,
+                "seconds_ago": None,
+                "last_seen_text": "Never",
+                "connection_status": "offline"
             }
 
     # Fetch recent logs across devices

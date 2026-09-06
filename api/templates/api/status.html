@@ -160,6 +160,17 @@
             animation: pulse 2s infinite alternate;
         }
 
+        .status-dot.idle {
+            background-color: var(--accent-amber);
+            box-shadow: 0 0 10px var(--accent-amber);
+        }
+
+        .status-dot.offline {
+            background-color: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
+            animation: none;
+        }
+
         @keyframes pulse {
             0% { transform: scale(0.9); opacity: 0.6; }
             100% { transform: scale(1.15); opacity: 1; }
@@ -339,11 +350,14 @@
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
         .stat-val {
             font-family: 'Outfit', sans-serif;
-            font-size: 1.4rem;
+            font-size: 1.25rem;
             font-weight: 700;
             color: var(--text-primary);
         }
@@ -472,7 +486,7 @@
 <div class="container">
     <header>
         <div class="brand-badge">
-            <span class="status-dot"></span>
+            <span class="status-dot {% if device_01.connection_status == 'idle' %}idle{% elif device_01.connection_status == 'offline' %}offline{% endif %}" id="header-status-dot"></span>
             ESP8266 Live Telemetry
         </div>
         <h1>Tank Water Level Monitor</h1>
@@ -500,11 +514,11 @@
                     {% if device_01.water_level != None %}{{ device_01.water_level|floatformat:0 }}%{% else %}--%{% endif %}
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;" id="water-status-label">
-                    {% if device_01.water_level == 100 %}Tank Full
-                    {% elif device_01.water_level >= 75 %}High Level
-                    {% elif device_01.water_level >= 50 %}Mid Level
-                    {% elif device_01.water_level >= 25 %}Low Level
-                    {% elif device_01.water_level == 0 %}Tank Empty
+                    {% if device_01.water_level == 100 %}Tank Full (100%)
+                    {% elif device_01.water_level >= 75 %}High Level (75%)
+                    {% elif device_01.water_level >= 50 %}Mid Level (50%)
+                    {% elif device_01.water_level >= 25 %}Low Level (25%)
+                    {% elif device_01.water_level == 0 %}Tank Empty (0%)
                     {% else %}Awaiting Telemetry{% endif %}
                 </div>
             </div>
@@ -514,7 +528,7 @@
         <div class="glass-card">
             <div class="card-header">
                 <div class="device-title">
-                    <span class="status-dot"></span>
+                    <span class="status-dot {% if device_01.connection_status == 'idle' %}idle{% elif device_01.connection_status == 'offline' %}offline{% endif %}" id="card-status-dot"></span>
                     <span class="device-name">Probe Sensor Array</span>
                 </div>
                 <span class="brand-badge" id="device-id-badge">esp8266_device_01</span>
@@ -573,15 +587,33 @@
                 </div>
             </div>
 
-            <!-- Stats -->
+            <!-- Stats with LAST SEEN and STATUS -->
             <div class="stats-grid">
-                <div class="stat-box">
-                    <div class="stat-label">Reference Pin</div>
-                    <div class="stat-val" style="font-size: 1.1rem; color: #38bdf8;">D1 / GPIO5 (GND)</div>
+                <!-- LAST SEEN STAT BOX -->
+                <div class="stat-box" style="border-color: rgba(56, 189, 248, 0.2);">
+                    <div class="stat-label">
+                        <span>Last Seen</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </div>
+                    <div class="stat-val" style="color: #38bdf8;" id="last-seen-val">
+                        {{ device_01.last_seen_text|default:"Never" }}
+                    </div>
                 </div>
+
+                <!-- CONNECTION STATUS STAT BOX -->
                 <div class="stat-box">
-                    <div class="stat-label">Telemetry Status</div>
-                    <div class="stat-val" style="font-size: 1.1rem; color: #10b981;" id="telemetry-online-text">ONLINE</div>
+                    <div class="stat-label">
+                        <span>Device Status</span>
+                        <span class="status-dot {% if device_01.connection_status == 'idle' %}idle{% elif device_01.connection_status == 'offline' %}offline{% endif %}" id="status-box-dot"></span>
+                    </div>
+                    <div class="stat-val" style="color: {% if device_01.connection_status == 'online' %}#10b981{% elif device_01.connection_status == 'idle' %}#f59e0b{% else %}#ef4444{% endif %};" id="telemetry-online-text">
+                        {% if device_01.connection_status == 'online' %}ONLINE
+                        {% elif device_01.connection_status == 'idle' %}IDLE
+                        {% else %}OFFLINE{% endif %}
+                    </div>
                 </div>
             </div>
 
@@ -621,6 +653,57 @@
 
 <script>
     const refreshBtn = document.getElementById('refresh-trigger');
+    let lastSeenTimestampMs = null;
+
+    // Format seconds into human readable relative time
+    function formatRelativeTime(seconds) {
+        if (seconds === null || isNaN(seconds)) return 'Never';
+        if (seconds < 5) return 'Just now';
+        if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    // Update connection status pills & dots
+    function updateConnectionStatus(seconds) {
+        const dotHeader = document.getElementById('header-status-dot');
+        const dotCard = document.getElementById('card-status-dot');
+        const dotBox = document.getElementById('status-box-dot');
+        const statusText = document.getElementById('telemetry-online-text');
+        const lastSeenVal = document.getElementById('last-seen-val');
+
+        if (lastSeenVal) {
+            lastSeenVal.textContent = formatRelativeTime(seconds);
+        }
+
+        let state = 'offline';
+        let color = '#ef4444';
+        let label = 'OFFLINE';
+
+        if (seconds !== null && !isNaN(seconds)) {
+            if (seconds <= 15) {
+                state = 'online';
+                color = '#10b981';
+                label = 'ONLINE';
+            } else if (seconds <= 60) {
+                state = 'idle';
+                color = '#f59e0b';
+                label = 'IDLE';
+            }
+        }
+
+        [dotHeader, dotCard, dotBox].forEach(dot => {
+            if (dot) {
+                dot.className = 'status-dot' + (state === 'idle' ? ' idle' : state === 'offline' ? ' offline' : '');
+            }
+        });
+
+        if (statusText) {
+            statusText.textContent = label;
+            statusText.style.color = color;
+        }
+    }
 
     function updateProbeUI(level) {
         const fillEl = document.getElementById('tank-water-fill');
@@ -697,6 +780,11 @@
                         updateProbeUI(dev1.water_level);
                         const timeEl = document.getElementById('time-esp8266_device_01');
                         if (timeEl) timeEl.textContent = dev1.timestamp || 'Never';
+
+                        if (dev1.seconds_ago !== undefined && dev1.seconds_ago !== null) {
+                            lastSeenTimestampMs = Date.now() - (dev1.seconds_ago * 1000);
+                            updateConnectionStatus(dev1.seconds_ago);
+                        }
                     }
                 }
 
@@ -735,8 +823,16 @@
         }
     }
 
-    // Auto-poll status every 1.5 seconds
-    setInterval(fetchLatestData, 1500);
+    // Live 1-second ticker to update 'Last Seen' continuously
+    setInterval(() => {
+        if (lastSeenTimestampMs !== null) {
+            const elapsedSeconds = Math.max(0, (Date.now() - lastSeenTimestampMs) / 1000);
+            updateConnectionStatus(elapsedSeconds);
+        }
+    }, 1000);
+
+    // Auto-poll status from server every 2 seconds
+    setInterval(fetchLatestData, 2000);
 </script>
 </body>
 </html>

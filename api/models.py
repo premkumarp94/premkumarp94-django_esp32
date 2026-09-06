@@ -5,7 +5,6 @@ class TelemetryReading(models.Model):
     temperature = models.FloatField(null=True, blank=True)
     humidity = models.FloatField(null=True, blank=True)
     water_level = models.FloatField(null=True, blank=True)
-    motor_status = models.CharField(max_length=20, default="stopped")
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -16,12 +15,12 @@ class TelemetryReading(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.device_id} - Water: {self.water_level}%, Temp: {self.temperature}°C, Motor: {self.motor_status} at {self.timestamp}"
+        return f"{self.device_id} - Water: {self.water_level}%, Temp: {self.temperature}°C at {self.timestamp}"
 
 
 class DeviceCommand(models.Model):
     device_id = models.CharField(max_length=100, db_index=True)
-    command = models.CharField(max_length=100)  # e.g., "start_motor", "stop_motor"
+    command = models.CharField(max_length=100)
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
     is_executed = models.BooleanField(default=False, db_index=True)
 
@@ -48,17 +47,3 @@ class DeviceLog(models.Model):
 
     def __str__(self):
         return f"{self.device_id} - {self.message} at {self.timestamp}"
-
-
-class WaterThreshold(models.Model):
-    start_level = models.FloatField(default=33.0)
-    stop_level = models.FloatField(default=100.0)
-    auto_mode = models.BooleanField(default=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Start <= {self.start_level}%, Stop >= {self.stop_level}% (Auto: {self.auto_mode})"
-
-
-
-

@@ -7,8 +7,7 @@ from datetime import datetime
 # Configurations
 DEVICE_ID = "esp8266_device_01"  # Unique device name
 loop_interval = 5  # sends data once every 5 seconds
-motor_status = "stopped"
-pending_device_msg = "esp8266 booted normally"
+pending_device_msg = "esp8266 tank monitor booted normally"
 iteration_count = 0
 
 
@@ -53,16 +52,19 @@ def find_working_telemetry_url(device_id):
 TELEMETRY_URL = find_working_telemetry_url(DEVICE_ID)
 
 print("=" * 60)
-print(f"   ESP32 SIMULATOR STARTING (Device ID: {DEVICE_ID})")
+print(f"   ESP8266 4-PROBE TANK SIMULATOR (Device ID: {DEVICE_ID})")
 print(f"   Active Server URL: {TELEMETRY_URL}")
 print("=" * 60)
+
+# 4 Discrete probe levels: 0% (Empty), 25% (Low), 50% (Mid-Low), 75% (Mid-High), 100% (Full)
+PROBE_LEVELS = [0, 25, 50, 75, 100]
 
 try:
     while True:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # Simulate sensor readings
-        water_level = random.randrange(0, 105, 5)
+        # Simulate discrete 4-probe water level
+        water_level = random.choice(PROBE_LEVELS)
         
         # Prepare payload
         ack_val = "dummy_ack"
@@ -72,8 +74,7 @@ try:
         payload = {
             "id": DEVICE_ID,
             "sensor values": {
-                "water_level": water_level,
-                "motor_status": motor_status
+                "water_level": water_level
             },
             "ack": ack_val,
             "message": device_msg
@@ -90,45 +91,6 @@ try:
                 resp_dict = json.loads(response.text)
                 print(f"[{timestamp}] Receive JSON:")
                 print(json.dumps(resp_dict, indent=2))
-                
-                command = resp_dict.get("command", "")
-                
-                cmd_executed = False
-                if command == "start_motor":
-                    motor_status = "started"
-                    pending_device_msg = "Motor started successfully."
-                    print(f"[{timestamp}] => Action executed: Motor started!")
-                    cmd_executed = True
-                elif command == "stop_motor":
-                    motor_status = "stopped"
-                    pending_device_msg = "Motor stopped successfully."
-                    print(f"[{timestamp}] => Action executed: Motor stopped!")
-                    cmd_executed = True
-                else:
-                    if command not in ["", "none", None]:
-                        print(f"[{timestamp}] => Invalid command '{command}' received (treating as no command received).")
-                    else:
-                        print(f"[{timestamp}] => No command received.")
-                
-                # Send immediate telemetry confirmation to update server status instantly
-                if cmd_executed:
-                    print(f"[{timestamp}] => Sending immediate status update confirmation...")
-                    confirm_payload = {
-                        "id": DEVICE_ID,
-                        "sensor values": {
-                            "water_level": water_level,
-                            "motor_status": motor_status
-                        },
-                        "ack": "cmd_executed_ack",
-                        "message": pending_device_msg
-                    }
-                    pending_device_msg = ""
-                    try:
-                        confirm_resp = requests.post(TELEMETRY_URL, data=json.dumps(confirm_payload), headers=headers, timeout=5)
-                        if confirm_resp.status_code == 200:
-                            print(f"[{timestamp}] => Server state updated immediately!")
-                    except Exception as confirm_err:
-                        print(f"[{timestamp}] Error sending immediate status update: {confirm_err}")
             else:
                 print(f"[{timestamp}] Error: HTTP status code: {response.status_code}")
                 

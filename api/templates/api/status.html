@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ESP32 Multi-Device Command & Telemetry Center</title>
+    <title>ESP8266 4-Probe Water Tank Level Monitor</title>
     
     <!-- Premium Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,18 +12,17 @@
     
     <style>
         :root {
-            --bg-color: #08090d;
+            --bg-color: #08090e;
             --card-bg: rgba(255, 255, 255, 0.035);
             --card-border: rgba(255, 255, 255, 0.08);
-            --card-hover-border: rgba(255, 255, 255, 0.18);
+            --card-hover-border: rgba(56, 189, 248, 0.25);
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
-            --accent-temp: linear-gradient(135deg, #ff6b6b, #ff8e53);
-            --accent-humidity: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            --accent-water: linear-gradient(135deg, #0284c7, #38bdf8);
+            --accent-cyan: #38bdf8;
             --accent-green: #10b981;
-            --accent-front: linear-gradient(135deg, #10b981, #059669);
-            --accent-back: linear-gradient(135deg, #8b5cf6, #6366f1);
-            --accent-stopped: linear-gradient(135deg, #64748b, #475569);
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
             --transition-speed: 0.3s;
         }
 
@@ -38,8 +37,8 @@
             font-family: 'Plus Jakarta Sans', sans-serif;
             background-color: var(--bg-color);
             background-image: 
-                radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.07) 0%, transparent 45%),
-                radial-gradient(circle at 85% 85%, rgba(139, 92, 246, 0.07) 0%, transparent 45%);
+                radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(2, 132, 199, 0.08) 0%, transparent 45%);
             color: var(--text-primary);
             min-height: 100vh;
             display: flex;
@@ -63,16 +62,31 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
-            gap: 10px;
-            margin-bottom: 8px;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .brand-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            background: rgba(56, 189, 248, 0.12);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            padding: 4px 12px;
+            border-radius: 999px;
         }
 
         h1 {
             font-family: 'Outfit', sans-serif;
-            font-size: 2.4rem;
+            font-size: 2.3rem;
             font-weight: 800;
             letter-spacing: -0.03em;
-            background: linear-gradient(135deg, #ffffff 30%, #cbd5e1 100%);
+            background: linear-gradient(135deg, #ffffff 30%, #93c5fd 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -83,21 +97,21 @@
             font-weight: 400;
         }
 
-        /* Dual Grid for Devices */
-        .devices-grid {
+        /* Main Dashboard Grid */
+        .dashboard-grid {
             display: grid;
             grid-template-columns: 1fr;
             gap: 24px;
         }
 
         @media (min-width: 768px) {
-            .devices-grid {
-                grid-template-columns: 1fr 1fr;
+            .dashboard-grid {
+                grid-template-columns: 340px 1fr;
             }
         }
 
         /* Glassmorphic Device Card */
-        .device-card {
+        .glass-card {
             background: var(--card-bg);
             border: 1px solid var(--card-border);
             backdrop-filter: blur(20px);
@@ -109,12 +123,10 @@
             flex-direction: column;
             gap: 20px;
             transition: border-color var(--transition-speed), transform var(--transition-speed);
-            position: relative;
         }
 
-        .device-card:hover {
+        .glass-card:hover {
             border-color: var(--card-hover-border);
-            transform: translateY(-2px);
         }
 
         .card-header {
@@ -138,16 +150,6 @@
             color: var(--text-primary);
         }
 
-        .device-badge {
-            font-size: 0.72rem;
-            font-weight: 600;
-            padding: 3px 10px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.08);
-            color: var(--text-secondary);
-            letter-spacing: 0.04em;
-        }
-
         .status-dot {
             width: 8px;
             height: 8px;
@@ -163,243 +165,187 @@
             100% { transform: scale(1.15); opacity: 1; }
         }
 
-        /* Readings Layout */
-        .readings-container {
+        /* Water Tank Graphic Visualizer */
+        .tank-visualizer-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .tank-wrapper {
+            position: relative;
+            width: 140px;
+            height: 260px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 3px solid rgba(56, 189, 248, 0.35);
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8), 0 10px 25px rgba(2, 132, 199, 0.15);
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        .tank-water-fill {
+            width: 100%;
+            height: 0%;
+            background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+            transition: height 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+        }
+
+        .tank-water-fill::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            filter: blur(1px);
+        }
+
+        .tank-markers {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 16px 8px;
+        }
+
+        .tank-marker-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px dashed rgba(255, 255, 255, 0.2);
+            padding-top: 2px;
+            font-size: 0.68rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .tank-level-display {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1;
+        }
+
+        /* Probe Sensors Grid */
+        .probes-section-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+        }
+
+        .probes-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .probe-item {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 14px;
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all var(--transition-speed) ease;
+        }
+
+        .probe-item.active {
+            border-color: rgba(56, 189, 248, 0.4);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .probe-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .probe-pin-badge {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .probe-name {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .probe-sub {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .probe-state-badge {
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #64748b;
+        }
+
+        .probe-item.active .probe-state-badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
         }
 
-        .reading-box {
+        .stat-box {
             background: rgba(0, 0, 0, 0.25);
             border: 1px solid rgba(255, 255, 255, 0.04);
             border-radius: 16px;
             padding: 16px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            position: relative;
-            overflow: hidden;
+            gap: 6px;
         }
 
-        .reading-box.full-width {
-            grid-column: span 2;
-        }
-
-        .reading-box::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 3px;
-        }
-
-        .reading-box.temp::before { background: var(--accent-temp); }
-        .reading-box.humidity::before { background: var(--accent-humidity); }
-        .reading-box.water-level::before { background: var(--accent-humidity); }
-        .reading-box.motor-state::before { background: var(--accent-stopped); }
-        .reading-box.motor-state.running::before { background: var(--accent-front); }
-        .reading-box.motor-state.front-dir::before { background: var(--accent-front); }
-        .reading-box.motor-state.back-dir::before { background: var(--accent-back); }
-
-        .reading-label {
+        .stat-label {
             font-size: 0.75rem;
             font-weight: 600;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
         }
 
-        .reading-icon {
-            width: 20px;
-            height: 20px;
-            opacity: 0.85;
-        }
-
-        .reading-box.running .reading-icon,
-        .reading-box.front-dir .reading-icon,
-        .reading-box.back-dir .reading-icon {
-            animation: spin 2.5s linear infinite;
-        }
-
-        .reading-box.back-dir .reading-icon {
-            animation-direction: reverse;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .reading-val {
+        .stat-val {
             font-family: 'Outfit', sans-serif;
-            font-size: 2.0rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-        }
-
-        .reading-box.temp .reading-val {
-            background: var(--accent-temp);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .reading-box.humidity .reading-val {
-            background: var(--accent-humidity);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .reading-box.water-level .reading-val {
-            background: var(--accent-humidity);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .status-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 1.3rem;
-            font-weight: 800;
-            font-family: 'Outfit', sans-serif;
-        }
-
-        .status-pill.stopped { color: #94a3b8; }
-        .status-pill.running, .status-pill.front {
-            background: var(--accent-front);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .status-pill.back {
-            background: var(--accent-back);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        /* Control Action Buttons */
-        .controls-grid {
-            display: grid;
-            gap: 10px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            padding-top: 16px;
-        }
-
-        .controls-grid.two-col {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .controls-grid.three-col {
-            grid-template-columns: 1fr 1fr 1fr;
-        }
-
-        .btn-action {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 1.4rem;
             font-weight: 700;
-            font-size: 0.82rem;
-            padding: 12px 10px;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all var(--transition-speed) ease;
-            outline: none;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            color: #ffffff;
-        }
-
-        .btn-action:hover {
-            transform: translateY(-2px);
-        }
-
-        .btn-action:active {
-            transform: translateY(1px);
-        }
-
-        .btn-start, .btn-front {
-            background: linear-gradient(135deg, #10b981, #059669);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
-        }
-
-        .btn-back {
-            background: linear-gradient(135deg, #8b5cf6, #6366f1);
-            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
-        }
-
-        .btn-stop {
-            background: rgba(239, 68, 68, 0.12);
-            color: #f87171;
-            border-color: rgba(239, 68, 68, 0.3);
-        }
-
-        .btn-stop:hover {
-            background: rgba(239, 68, 68, 0.22);
-            border-color: rgba(239, 68, 68, 0.5);
-        }
-
-        /* Card Footer */
-        .btn-servo {
-            background: linear-gradient(135deg, #0284c7, #2563eb);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-            width: 100%;
-        }
-
-        .servo-inputs-container {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            padding-top: 14px;
-            margin-top: 4px;
-        }
-
-        .servo-title {
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-secondary);
-        }
-
-        .servo-fields {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        .servo-field {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .servo-field label {
-            font-size: 0.7rem;
-            color: var(--text-secondary);
-            font-weight: 600;
-        }
-
-        .servo-field input {
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 8px 12px;
             color: var(--text-primary);
-            font-family: 'Outfit', sans-serif;
-            font-size: 0.95rem;
-            font-weight: 600;
-            outline: none;
-            width: 100%;
-        }
-
-        .servo-field input:focus {
-            border-color: #38bdf8;
         }
 
         .card-footer {
@@ -475,48 +421,12 @@
             flex-shrink: 0;
         }
         .log-msg { color: #cbd5e1; word-break: break-all; }
-        .log-line.started .log-msg, .log-line.front .log-msg { color: #34d399; }
-        .log-line.back .log-msg { color: #a78bfa; }
-        .log-line.stopped .log-msg { color: #f87171; }
 
         .no-logs {
             color: var(--text-secondary);
             font-style: italic;
             text-align: center;
             padding: 12px 0;
-        }
-
-        /* Toast notifications */
-        .toast {
-            position: fixed;
-            bottom: 24px;
-            left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            background: rgba(15, 23, 42, 0.95);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            color: var(--text-primary);
-            padding: 12px 24px;
-            border-radius: 16px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            backdrop-filter: blur(8px);
-        }
-
-        .toast.show {
-            transform: translateX(-50%) translateY(0);
-        }
-
-        .toast-dot {
-            width: 8px;
-            height: 8px;
-            background-color: #38bdf8;
-            border-radius: 50%;
         }
 
         .refresh-btn {
@@ -541,6 +451,11 @@
             animation: spin 0.8s linear infinite;
         }
 
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         .refresh-btn svg {
             width: 18px;
             height: 18px;
@@ -556,196 +471,132 @@
 
 <div class="container">
     <header>
-        <h1>ESP32 Control Dashboard</h1>
-        <div class="subtitle">Multi-Client Telemetry & Gear Motor Web Controller</div>
+        <div class="brand-badge">
+            <span class="status-dot"></span>
+            ESP8266 Live Telemetry
+        </div>
+        <h1>Tank Water Level Monitor</h1>
+        <div class="subtitle">Real-time 4-Probe Discrete Water Level & Telemetry Center</div>
     </header>
 
-    <!-- Devices Grid -->
-    <div class="devices-grid">
+    <!-- Main Grid -->
+    <div class="dashboard-grid">
         
-        <!-- CARD 1: ESP8266 Water Level & Fan Device (esp8266_device_01) -->
-        <div class="device-card" id="card-esp8266_device_01">
-            <div class="card-header">
-                <div class="device-title">
-                    <span class="status-dot"></span>
-                    <span class="device-name">Water Level & Fan Simulator</span>
-                </div>
-                <span class="device-badge" id="badge-esp8266_device_01">esp8266_device_01</span>
-            </div>
-
-            <div class="readings-container">
-                <!-- Water Level -->
-                <div class="reading-box water-level full-width">
-                    <div class="reading-label">
-                        <span>Water Level</span>
-                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
-                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
-                        </svg>
-                    </div>
-                    <div class="reading-val" id="water-esp8266_device_01">
-                        {% if device_01.water_level != None %}{{ device_01.water_level|floatformat:0 }}%{% else %}--{% endif %}
-                    </div>
-                </div>
-
-                <!-- Fan Motor Status -->
-                <div class="reading-box full-width motor-state {% if device_01.motor_status == 'started' %}running{% endif %}" id="motor-box-esp8266_device_01">
-                    <div class="reading-label">
-                        <span>Fan Motor Status</span>
-                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="1"></circle>
-                            <path d="M12 12c0-3 2.5-5.5 5.5-5.5S23 9 23 12c0 3-2.5 5.5-5.5 5.5S12 15 12 12z"></path>
-                            <path d="M12 12c3 0 5.5 2.5 5.5 5.5S15 23 12 23c-3 0-5.5-2.5-5.5-5.5S9 12 12 12z"></path>
-                        </svg>
-                    </div>
-                    <div class="status-pill {% if device_01.motor_status == 'started' %}running{% else %}stopped{% endif %}" id="motor-val-esp8266_device_01">
-                        {% if device_01.motor_status == 'started' %}RUNNING{% else %}STOPPED{% endif %}
-                    </div>
+        <!-- Tank Visualizer Card -->
+        <div class="glass-card tank-visualizer-card">
+            <div class="tank-wrapper">
+                <div class="tank-water-fill" id="tank-water-fill" style="height: {% if device_01.water_level != None %}{{ device_01.water_level }}{% else %}0{% endif %}%;"></div>
+                <div class="tank-markers">
+                    <div class="tank-marker-line"><span>100%</span><span>FULL</span></div>
+                    <div class="tank-marker-line"><span>75%</span><span>HIGH</span></div>
+                    <div class="tank-marker-line"><span>50%</span><span>MID</span></div>
+                    <div class="tank-marker-line"><span>25%</span><span>LOW</span></div>
+                    <div class="tank-marker-line"><span>0%</span><span>EMPTY</span></div>
                 </div>
             </div>
 
-            <!-- Controls -->
-            <div class="controls-grid two-col">
-                <button class="btn-action btn-start" onclick="sendDeviceCommand('esp8266_device_01', 'start_motor')">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-                        <line x1="12" y1="2" x2="12" y2="12"></line>
-                    </svg>
-                    Start Motor
-                </button>
-                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp8266_device_01', 'stop_motor')">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    </svg>
-                    Stop Motor
-                </button>
-            </div>
-
-            <div class="card-footer">
-                <span>Last payload:</span>
-                <span class="timestamp-text" id="time-esp8266_device_01">{{ device_01.timestamp }}</span>
+            <div style="text-align: center;">
+                <div class="tank-level-display" id="water-pct-display">
+                    {% if device_01.water_level != None %}{{ device_01.water_level|floatformat:0 }}%{% else %}--%{% endif %}
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;" id="water-status-label">
+                    {% if device_01.water_level == 100 %}Tank Full
+                    {% elif device_01.water_level >= 75 %}High Level
+                    {% elif device_01.water_level >= 50 %}Mid Level
+                    {% elif device_01.water_level >= 25 %}Low Level
+                    {% elif device_01.water_level == 0 %}Tank Empty
+                    {% else %}Awaiting Telemetry{% endif %}
+                </div>
             </div>
         </div>
 
-
-        <!-- CARD 2: ESP8266 Motor Controller (esp8266_device_02) -->
-        <div class="device-card" id="card-esp8266_device_02">
+        <!-- 4 Probe Status & Stats Card -->
+        <div class="glass-card">
             <div class="card-header">
                 <div class="device-title">
                     <span class="status-dot"></span>
-                    <span class="device-name">Water Pump Motor Controller</span>
+                    <span class="device-name">Probe Sensor Array</span>
                 </div>
-                <span class="device-badge" id="badge-esp8266_device_02">esp8266_device_02</span>
+                <span class="brand-badge" id="device-id-badge">esp8266_device_01</span>
             </div>
 
-            <div class="readings-container">
-                <!-- Water Level -->
-                <div class="reading-box water-level full-width">
-                    <div class="reading-label">
-                        <span>Water Level</span>
-                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
-                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
-                        </svg>
+            <div class="probes-section-title">Active Probe Channels (Active-LOW Pullup)</div>
+
+            <!-- 4 Probes List -->
+            <div class="probes-list">
+                <!-- Probe 4: 100% -->
+                <div class="probe-item {% if device_01.water_level >= 100 %}active{% endif %}" id="probe-item-100">
+                    <div class="probe-info">
+                        <span class="probe-pin-badge">D7 / GPIO13</span>
+                        <div>
+                            <div class="probe-name">Probe 4 (100% Full)</div>
+                            <div class="probe-sub">Maximum capacity detection</div>
+                        </div>
                     </div>
-                    <div class="reading-val" id="water-esp8266_device_02">
-                        {% if device_02.water_level != None %}{{ device_02.water_level|floatformat:0 }}%{% else %}--{% endif %}
-                    </div>
+                    <span class="probe-state-badge" id="probe-state-100">{% if device_01.water_level >= 100 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
 
-                <!-- Motor State Box -->
-                <div class="reading-box full-width motor-state {% if device_02.motor_status == 'started' %}running{% endif %}" id="motor-box-esp8266_device_02">
-                    <div class="reading-label">
-                        <span>Water Pump Motor Status</span>
-                        <svg class="reading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="1"></circle>
-                            <path d="M12 12c0-3 2.5-5.5 5.5-5.5S23 9 23 12c0 3-2.5 5.5-5.5 5.5S12 15 12 12z"></path>
-                            <path d="M12 12c3 0 5.5 2.5 5.5 5.5S15 23 12 23c-3 0-5.5-2.5-5.5-5.5S9 12 12 12z"></path>
-                        </svg>
+                <!-- Probe 3: 75% -->
+                <div class="probe-item {% if device_01.water_level >= 75 %}active{% endif %}" id="probe-item-75">
+                    <div class="probe-info">
+                        <span class="probe-pin-badge">D6 / GPIO12</span>
+                        <div>
+                            <div class="probe-name">Probe 3 (75% Mid-High)</div>
+                            <div class="probe-sub">Three-quarters level detection</div>
+                        </div>
                     </div>
-                    <div class="status-pill {% if device_02.motor_status == 'started' %}running{% else %}stopped{% endif %}" id="motor-val-esp8266_device_02">
-                        {% if device_02.motor_status == 'started' %}RUNNING{% else %}STOPPED{% endif %}
-                    </div>
+                    <span class="probe-state-badge" id="probe-state-75">{% if device_01.water_level >= 75 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
 
-                <!-- Active Threshold Summary -->
-                <div class="reading-box full-width" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px 14px; border-radius: 8px;">
-                    <div class="reading-label" style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px;">
-                        <span>Auto Control Trigger Settings</span>
-                        <span style="font-size: 0.75rem; font-weight: 600; color: {% if threshold.auto_mode %}#4ade80{% else %}#f87171{% endif %};" id="auto-badge-text">
-                            {% if threshold.auto_mode %}ACTIVE{% else %}DISABLED{% endif %}
-                        </span>
+                <!-- Probe 2: 50% -->
+                <div class="probe-item {% if device_01.water_level >= 50 %}active{% endif %}" id="probe-item-50">
+                    <div class="probe-info">
+                        <span class="probe-pin-badge">D5 / GPIO14</span>
+                        <div>
+                            <div class="probe-name">Probe 2 (50% Mid-Low)</div>
+                            <div class="probe-sub">Half-tank level detection</div>
+                        </div>
                     </div>
-                    <div style="font-size: 0.85rem; color: #e2e8f0;">
-                        Start Motor at ≤ <strong id="thresh-start-val" style="color: #38bdf8;">{{ threshold.start_level|floatformat:0 }}%</strong> water level<br>
-                        Stop Motor at ≥ <strong id="thresh-stop-val" style="color: #4ade80;">{{ threshold.stop_level|floatformat:0 }}%</strong> water level
+                    <span class="probe-state-badge" id="probe-state-50">{% if device_01.water_level >= 50 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
+                </div>
+
+                <!-- Probe 1: 25% -->
+                <div class="probe-item {% if device_01.water_level >= 25 %}active{% endif %}" id="probe-item-25">
+                    <div class="probe-info">
+                        <span class="probe-pin-badge">D2 / GPIO4</span>
+                        <div>
+                            <div class="probe-name">Probe 1 (25% Low)</div>
+                            <div class="probe-sub">Quarter-tank minimum reserve</div>
+                        </div>
                     </div>
+                    <span class="probe-state-badge" id="probe-state-25">{% if device_01.water_level >= 25 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
             </div>
 
-            <!-- Motor Manual Controls: Start, Stop -->
-            <div class="controls-grid two-col">
-                <button class="btn-action btn-start" onclick="sendDeviceCommand('esp8266_device_02', 'start_motor')">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-                        <line x1="12" y1="2" x2="12" y2="12"></line>
-                    </svg>
-                    Start Motor
-                </button>
-                <button class="btn-action btn-stop" onclick="sendDeviceCommand('esp8266_device_02', 'stop_motor')">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    </svg>
-                    Stop Motor
-                </button>
-            </div>
-
-            <!-- Water Level Threshold Configuration Input -->
-            <div class="servo-inputs-container">
-                <div class="servo-title">Water Level Auto-Start/Stop Configuration</div>
-                <div class="servo-fields">
-                    <div class="servo-field">
-                        <label for="thresh-start-input">Start Percentage (%)</label>
-                        <select id="thresh-start-input" style="width: 100%; padding: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px;">
-                            <option value="0" {% if threshold.start_level == 0 %}selected{% endif %}>0% (Empty)</option>
-                            <option value="33" {% if threshold.start_level == 33 %}selected{% endif %}>33% (Low)</option>
-                            <option value="66" {% if threshold.start_level == 66 %}selected{% endif %}>66% (Mid)</option>
-                            <option value="100" {% if threshold.start_level == 100 %}selected{% endif %}>100% (Full)</option>
-                        </select>
-                    </div>
-                    <div class="servo-field">
-                        <label for="thresh-stop-input">Stop Percentage (%)</label>
-                        <select id="thresh-stop-input" style="width: 100%; padding: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px;">
-                            <option value="33" {% if threshold.stop_level == 33 %}selected{% endif %}>33% (Low)</option>
-                            <option value="66" {% if threshold.stop_level == 66 %}selected{% endif %}>66% (Mid)</option>
-                            <option value="100" {% if threshold.stop_level == 100 %}selected{% endif %}>100% (Full)</option>
-                        </select>
-                    </div>
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-label">Reference Pin</div>
+                    <div class="stat-val" style="font-size: 1.1rem; color: #38bdf8;">D1 / GPIO5 (GND)</div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.85rem; color: #cbd5e1;">
-                    <input type="checkbox" id="auto-mode-checkbox" {% if threshold.auto_mode %}checked{% endif %} style="width: 16px; height: 16px; cursor: pointer;">
-                    <label for="auto-mode-checkbox" style="cursor: pointer;">Enable Automatic Motor Triggering based on esp8266_device_01</label>
+                <div class="stat-box">
+                    <div class="stat-label">Telemetry Status</div>
+                    <div class="stat-val" style="font-size: 1.1rem; color: #10b981;" id="telemetry-online-text">ONLINE</div>
                 </div>
-                <button class="btn-action btn-servo" onclick="saveWaterThresholds()" style="margin-top: 12px; background: linear-gradient(135deg, #0284c7, #2563eb);">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                        <polyline points="7 3 7 8 15 8"></polyline>
-                    </svg>
-                    Save Water Threshold Settings
-                </button>
             </div>
 
             <div class="card-footer">
-                <span>Last payload:</span>
-                <span class="timestamp-text" id="time-esp8266_device_02">{{ device_02.timestamp }}</span>
+                <span>Last Telemetry Sync:</span>
+                <span class="timestamp-text" id="time-esp8266_device_01">{{ device_01.timestamp }}</span>
             </div>
         </div>
 
     </div>
 
-    <!-- System Activity Log Terminal -->
+    <!-- Live System Activity Logs -->
     <section class="logs-card">
         <div class="logs-header">
-            <h2 class="logs-title">Live System Activity Logs</h2>
+            <h2 class="logs-title">System Activity & Telemetry Feed</h2>
             <button class="refresh-btn" id="refresh-trigger" onclick="fetchLatestData()" title="Refresh telemetry">
                 <svg viewBox="0 0 24 24">
                     <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
@@ -755,105 +606,76 @@
         <div class="logs-terminal" id="logs-list">
             {% if logs %}
                 {% for log in logs %}
-                <div class="log-line {% if 'front' in log.message|lower or 'started' in log.message|lower %}started{% elif 'back' in log.message|lower %}back{% elif 'stopped' in log.message|lower %}stopped{% endif %}">
+                <div class="log-line">
                     <span class="log-time">[{{ log.timestamp|date:"H:i:s" }}]</span>
                     <span class="log-dev">{{ log.device_id }}</span>
                     <span class="log-msg">{{ log.message }}</span>
                 </div>
                 {% endfor %}
             {% else %}
-                <div class="no-logs">No system activity logged yet. Run a simulator to start telemetry feed.</div>
+                <div class="no-logs">No system activity logged yet. Start esp8266 or simulator to begin feed.</div>
             {% endif %}
         </div>
     </section>
 </div>
 
-<!-- Toast Popup -->
-<div class="toast" id="toast-message">
-    <span class="toast-dot"></span>
-    <span id="toast-text">Command queued.</span>
-</div>
-
 <script>
     const refreshBtn = document.getElementById('refresh-trigger');
-    const toast = document.getElementById('toast-message');
-    const toastText = document.getElementById('toast-text');
 
-    function showToast(message) {
-        toastText.textContent = message;
-        toast.classList.add('show');
-        setTimeout(() => { toast.classList.remove('show'); }, 3000);
-    }
+    function updateProbeUI(level) {
+        const fillEl = document.getElementById('tank-water-fill');
+        const pctEl = document.getElementById('water-pct-display');
+        const labelEl = document.getElementById('water-status-label');
 
-    // Command Dispatch via AJAX
-    async function sendDeviceCommand(deviceId, commandName) {
-        // Optimistically update UI state immediately on button click
-        if (deviceId === 'esp8266_device_01') {
-            const motorBox = document.getElementById('motor-box-esp8266_device_01');
-            const motorVal = document.getElementById('motor-val-esp8266_device_01');
-            if (motorBox && motorVal) {
-                if (commandName === 'start_motor') {
-                    motorBox.className = 'reading-box full-width motor-state running';
-                    motorVal.className = 'status-pill running';
-                    motorVal.textContent = 'RUNNING';
-                } else if (commandName === 'stop_motor') {
-                    motorBox.className = 'reading-box full-width motor-state';
-                    motorVal.className = 'status-pill stopped';
-                    motorVal.textContent = 'STOPPED';
-                }
-            }
-        } else if (deviceId === 'esp8266_device_02') {
-            const motorBox2 = document.getElementById('motor-box-esp8266_device_02');
-            const motorVal2 = document.getElementById('motor-val-esp8266_device_02');
-            if (motorBox2 && motorVal2) {
-                if (commandName === 'start_motor') {
-                    motorBox2.className = 'reading-box full-width motor-state running';
-                    motorVal2.className = 'status-pill running';
-                    motorVal2.textContent = 'RUNNING';
-                } else if (commandName === 'stop_motor') {
-                    motorBox2.className = 'reading-box full-width motor-state';
-                    motorVal2.className = 'status-pill stopped';
-                    motorVal2.textContent = 'STOPPED';
-                }
-            }
+        if (level === null || level === undefined) {
+            if (pctEl) pctEl.textContent = '--%';
+            if (labelEl) labelEl.textContent = 'Awaiting Telemetry';
+            if (fillEl) fillEl.style.height = '0%';
+            return;
         }
 
-        try {
-            const response = await fetch('/api/command/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    device_id: deviceId,
-                    command: commandName
-                })
-            });
-            
-            const data = await response.json();
-            if (response.ok && data.status === 'success') {
-                showToast(data.message);
-                fetchLatestData();
-                setTimeout(fetchLatestData, 300);
-                setTimeout(fetchLatestData, 1000);
-            } else {
-                showToast('Error: ' + (data.message || 'Failed to send command'));
-            }
-        } catch (error) {
-            console.error('Error sending command:', error);
-            showToast('Connection error to Django server.');
+        const numericLvl = Math.round(level);
+        if (fillEl) fillEl.style.height = numericLvl + '%';
+        if (pctEl) pctEl.textContent = numericLvl + '%';
+
+        if (labelEl) {
+            if (numericLvl >= 100) labelEl.textContent = 'Tank Full (100%)';
+            else if (numericLvl >= 75) labelEl.textContent = 'High Level (75%)';
+            else if (numericLvl >= 50) labelEl.textContent = 'Mid Level (50%)';
+            else if (numericLvl >= 25) labelEl.textContent = 'Low Level (25%)';
+            else labelEl.textContent = 'Tank Empty (0%)';
         }
-    }
 
-    // Save Water Level Start & Stop Threshold Configuration
-    async function saveWaterThresholds() {
-        const startVal = document.getElementById('thresh-start-input').value;
-        const stopVal = document.getElementById('thresh-stop-input').value;
-        const autoMode = document.getElementById('auto-mode-checkbox').checked ? 1 : 0;
+        // Update 4 Probes
+        const p100 = document.getElementById('probe-item-100');
+        const p75 = document.getElementById('probe-item-75');
+        const p50 = document.getElementById('probe-item-50');
+        const p25 = document.getElementById('probe-item-25');
 
-        const cmd = `set_threshold:${startVal}:${stopVal}:${autoMode}`;
-        await sendDeviceCommand('esp8266_device_02', cmd);
+        const s100 = document.getElementById('probe-state-100');
+        const s75 = document.getElementById('probe-state-75');
+        const s50 = document.getElementById('probe-state-50');
+        const s25 = document.getElementById('probe-state-25');
+
+        if (p100 && s100) {
+            if (numericLvl >= 100) { p100.className = 'probe-item active'; s100.textContent = 'WATER DETECTED'; }
+            else { p100.className = 'probe-item'; s100.textContent = 'OPEN (AIR)'; }
+        }
+
+        if (p75 && s75) {
+            if (numericLvl >= 75) { p75.className = 'probe-item active'; s75.textContent = 'WATER DETECTED'; }
+            else { p75.className = 'probe-item'; s75.textContent = 'OPEN (AIR)'; }
+        }
+
+        if (p50 && s50) {
+            if (numericLvl >= 50) { p50.className = 'probe-item active'; s50.textContent = 'WATER DETECTED'; }
+            else { p50.className = 'probe-item'; s50.textContent = 'OPEN (AIR)'; }
+        }
+
+        if (p25 && s25) {
+            if (numericLvl >= 25) { p25.className = 'probe-item active'; s25.textContent = 'WATER DETECTED'; }
+            else { p25.className = 'probe-item'; s25.textContent = 'OPEN (AIR)'; }
+        }
     }
 
     // Refresh Telemetry Data via JSON AJAX Polling
@@ -870,70 +692,11 @@
                 const data = await response.json();
 
                 if (data.status === 'success' && data.devices) {
-                    // Update esp8266_device_01
                     const dev1 = data.devices['esp8266_device_01'];
                     if (dev1) {
-                        const waterEl = document.getElementById('water-esp8266_device_01');
-                        const motorBox = document.getElementById('motor-box-esp8266_device_01');
-                        const motorVal = document.getElementById('motor-val-esp8266_device_01');
+                        updateProbeUI(dev1.water_level);
                         const timeEl = document.getElementById('time-esp8266_device_01');
-
-                        if (waterEl && dev1.water_level !== null && dev1.water_level !== undefined) {
-                            waterEl.textContent = Math.round(dev1.water_level) + '%';
-                        }
                         if (timeEl) timeEl.textContent = dev1.timestamp || 'Never';
-
-                        if (motorBox && motorVal) {
-                            if (dev1.motor_status === 'started') {
-                                motorBox.className = 'reading-box full-width motor-state running';
-                                motorVal.className = 'status-pill running';
-                                motorVal.textContent = 'RUNNING';
-                            } else {
-                                motorBox.className = 'reading-box full-width motor-state';
-                                motorVal.className = 'status-pill stopped';
-                                motorVal.textContent = 'STOPPED';
-                            }
-                        }
-                    }
-
-                    // Update esp8266_device_02
-                    const dev2 = data.devices['esp8266_device_02'];
-                    if (dev2) {
-                        const waterEl2 = document.getElementById('water-esp8266_device_02');
-                        const motorBox2 = document.getElementById('motor-box-esp8266_device_02');
-                        const motorVal2 = document.getElementById('motor-val-esp8266_device_02');
-                        const timeEl2 = document.getElementById('time-esp8266_device_02');
-
-                        if (waterEl2 && dev2.water_level !== null && dev2.water_level !== undefined) {
-                            waterEl2.textContent = Math.round(dev2.water_level) + '%';
-                        }
-                        if (timeEl2) timeEl2.textContent = dev2.timestamp || 'Never';
-
-                        if (motorBox2 && motorVal2) {
-                            if (dev2.motor_status === 'started') {
-                                motorBox2.className = 'reading-box full-width motor-state running';
-                                motorVal2.className = 'status-pill running';
-                                motorVal2.textContent = 'RUNNING';
-                            } else {
-                                motorBox2.className = 'reading-box full-width motor-state';
-                                motorVal2.className = 'status-pill stopped';
-                                motorVal2.textContent = 'STOPPED';
-                            }
-                        }
-                    }
-
-                    // Update Threshold Display
-                    if (data.threshold) {
-                        const startEl = document.getElementById('thresh-start-val');
-                        const stopEl = document.getElementById('thresh-stop-val');
-                        const badgeEl = document.getElementById('auto-badge-text');
-
-                        if (startEl) startEl.textContent = Math.round(data.threshold.start_level) + '%';
-                        if (stopEl) stopEl.textContent = Math.round(data.threshold.stop_level) + '%';
-                        if (badgeEl) {
-                            badgeEl.textContent = data.threshold.auto_mode ? 'ACTIVE' : 'DISABLED';
-                            badgeEl.style.color = data.threshold.auto_mode ? '#4ade80' : '#f87171';
-                        }
                     }
                 }
 
@@ -947,13 +710,7 @@
                             logsList.innerHTML = '';
                             data.logs.forEach(log => {
                                 const entry = document.createElement('div');
-                                const msgLower = (log.message || '').toLowerCase();
-                                let stateClass = '';
-                                if (msgLower.includes('front') || msgLower.includes('started')) stateClass = 'started';
-                                else if (msgLower.includes('back')) stateClass = 'back';
-                                else if (msgLower.includes('stopped')) stateClass = 'stopped';
-
-                                entry.className = `log-line ${stateClass}`;
+                                entry.className = 'log-line';
 
                                 let timeStr = log.timestamp || '';
                                 if (timeStr.length > 11) timeStr = timeStr.substring(11);
@@ -978,8 +735,8 @@
         }
     }
 
-    // Auto-poll status every 1 second
-    setInterval(fetchLatestData, 1000);
+    // Auto-poll status every 1.5 seconds
+    setInterval(fetchLatestData, 1500);
 </script>
 </body>
 </html>

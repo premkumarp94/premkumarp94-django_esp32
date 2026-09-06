@@ -9,15 +9,15 @@ const char* password = "prem@123";
 
 //===================== DEVICE ===================
 String deviceId = "esp8266_device_01";
-String motorStatus = "stopped";
-String pendingDeviceMsg = "esp32 booted normally";
+String pendingDeviceMsg = "esp32 tank monitor booted normally";
 int iterationCount = 0;
 
-//===================== PROBES ===================
-const int COMMON_PIN = 23;
-const int LOW_PIN    = 21;
-const int MID_PIN    = 19;
-const int FULL_PIN   = 18;
+//===================== 4 WATER PROBES ===========
+const int COMMON_PIN    = 23; // Reference pin
+const int PROBE_25_PIN  = 21; // 25% probe
+const int PROBE_50_PIN  = 19; // 50% probe
+const int PROBE_75_PIN  = 18; // 75% probe
+const int PROBE_100_PIN = 5;  // 100% probe
 
 //===================== SERVER LIST ==============
 String serverList[] = {
@@ -54,17 +54,19 @@ int readWaterLevel() {
   digitalWrite(COMMON_PIN, HIGH);
   delay(20);
 
-  bool low = digitalRead(LOW_PIN);
-  bool mid = digitalRead(MID_PIN);
-  bool full = digitalRead(FULL_PIN);
+  bool p25  = digitalRead(PROBE_25_PIN);
+  bool p50  = digitalRead(PROBE_50_PIN);
+  bool p75  = digitalRead(PROBE_75_PIN);
+  bool p100 = digitalRead(PROBE_100_PIN);
 
   digitalWrite(COMMON_PIN, LOW);
 
-  Serial.printf("LOW=%d MID=%d FULL=%d\n", low, mid, full);
+  Serial.printf("P25=%d P50=%d P75=%d P100=%d\n", p25, p50, p75, p100);
 
-  if (full) return 100;
-  if (mid)  return 66;
-  if (low)  return 33;
+  if (p100) return 100;
+  if (p75)  return 75;
+  if (p50)  return 50;
+  if (p25)  return 25;
   return 0;
 }
 
@@ -141,7 +143,6 @@ bool sendTelemetry(String ack, String msg) {
 
   JsonObject sensor = doc.createNestedObject("sensor values");
   sensor["water_level"] = readWaterLevel();
-  sensor["motor_status"] = motorStatus;
 
   doc["ack"] = ack;
   doc["message"] = msg;
@@ -163,28 +164,6 @@ bool sendTelemetry(String ack, String msg) {
   Serial.println("Response:");
   Serial.println(response);
 
-  DynamicJsonDocument resp(512);
-
-  if (deserializeJson(resp, response) == DeserializationError::Ok) {
-    String cmd = resp["command"] | "";
-
-    if (cmd == "start_motor") {
-      motorStatus = "started";
-      pendingDeviceMsg = "Motor started successfully.";
-      Serial.println("START command");
-      sendTelemetry("cmd_executed_ack", pendingDeviceMsg);
-      pendingDeviceMsg = "";
-    } else if (cmd == "stop_motor") {
-      motorStatus = "stopped";
-      pendingDeviceMsg = "Motor stopped successfully.";
-      Serial.println("STOP command");
-      sendTelemetry("cmd_executed_ack", pendingDeviceMsg);
-      pendingDeviceMsg = "";
-    } else {
-      Serial.println("No command");
-    }
-  }
-
   return true;
 }
 
@@ -195,9 +174,10 @@ void setup() {
   pinMode(COMMON_PIN, OUTPUT);
   digitalWrite(COMMON_PIN, LOW);
 
-  pinMode(LOW_PIN, INPUT_PULLDOWN);
-  pinMode(MID_PIN, INPUT_PULLDOWN);
-  pinMode(FULL_PIN, INPUT_PULLDOWN);
+  pinMode(PROBE_25_PIN,  INPUT_PULLDOWN);
+  pinMode(PROBE_50_PIN,  INPUT_PULLDOWN);
+  pinMode(PROBE_75_PIN,  INPUT_PULLDOWN);
+  pinMode(PROBE_100_PIN, INPUT_PULLDOWN);
 
   connectWiFi();
   discoverServer();
@@ -216,7 +196,5 @@ void loop() {
 
   iterationCount++;
 
-  delay(2000);
+  delay(5000);
 }
-
-

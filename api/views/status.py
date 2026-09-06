@@ -1,7 +1,6 @@
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.db import OperationalError
-from api.models import TelemetryReading, DeviceLog, WaterThreshold
+from api.models import TelemetryReading, DeviceLog
 
 def status(request):
     try:
@@ -11,8 +10,8 @@ def status(request):
     except Exception:
         device_ids = []
     
-    # Ensure standard ESP8266 devices exist in dictionary
-    default_devices = ["esp8266_device_01", "esp8266_device_02"]
+    # Ensure default tank monitor device is present
+    default_devices = ["esp8266_device_01"]
     for dev in default_devices:
         if dev not in device_ids:
             device_ids.append(dev)
@@ -31,7 +30,6 @@ def status(request):
                 "temperature": reading.temperature,
                 "humidity": reading.humidity,
                 "water_level": reading.water_level,
-                "motor_status": reading.motor_status,
                 "timestamp": reading.timestamp.strftime('%Y-%m-%d %H:%M:%S')
             }
         else:
@@ -41,20 +39,8 @@ def status(request):
                 "temperature": None,
                 "humidity": None,
                 "water_level": None,
-                "motor_status": "stopped",
                 "timestamp": "Never"
             }
-
-    # Fetch active water level thresholds
-    try:
-        t_obj, _ = WaterThreshold.objects.get_or_create(id=1, defaults={"start_level": 33.0, "stop_level": 100.0, "auto_mode": True})
-        threshold_data = {
-            "start_level": t_obj.start_level,
-            "stop_level": t_obj.stop_level,
-            "auto_mode": t_obj.auto_mode
-        }
-    except Exception:
-        threshold_data = {"start_level": 33.0, "stop_level": 100.0, "auto_mode": True}
 
     # Fetch recent logs across devices
     try:
@@ -84,8 +70,6 @@ def status(request):
         context = {
             "devices": devices_data,
             "device_01": devices_data.get("esp8266_device_01"),
-            "device_02": devices_data.get("esp8266_device_02"),
-            "threshold": threshold_data,
             "has_data": overall_latest is not None,
             "logs": latest_logs
         }
@@ -95,12 +79,10 @@ def status(request):
     return JsonResponse({
         "status": "success",
         "devices": devices_data,
-        "threshold": threshold_data,
         "logs": logs_data,
         "device_id": overall_latest.device_id if overall_latest else "esp8266_device_01",
         "water_level": overall_latest.water_level if overall_latest else None,
         "temperature": overall_latest.temperature if overall_latest else None,
         "humidity": overall_latest.humidity if overall_latest else None,
-        "motor_status": overall_latest.motor_status if overall_latest else "stopped",
         "timestamp": overall_latest.timestamp.strftime('%Y-%m-%d %H:%M:%S') if overall_latest else None,
     })

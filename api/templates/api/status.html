@@ -539,51 +539,51 @@
             <!-- 4 Probes List -->
             <div class="probes-list">
                 <!-- Probe 4: 100% -->
-                <div class="probe-item {% if device_01.water_level >= 100 %}active{% endif %}" id="probe-item-100">
+                <div class="probe-item {% if device_01.probe_100 %}active{% endif %}" id="probe-item-100">
                     <div class="probe-info">
-                        <span class="probe-pin-badge">D7 / GPIO13</span>
+                        <span class="probe-pin-badge">D6 / GPIO12</span>
                         <div>
                             <div class="probe-name">Probe 4 (100% Full)</div>
                             <div class="probe-sub">Maximum capacity detection</div>
                         </div>
                     </div>
-                    <span class="probe-state-badge" id="probe-state-100">{% if device_01.water_level >= 100 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
+                    <span class="probe-state-badge" id="probe-state-100">{% if device_01.probe_100 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
 
                 <!-- Probe 3: 75% -->
-                <div class="probe-item {% if device_01.water_level >= 75 %}active{% endif %}" id="probe-item-75">
+                <div class="probe-item {% if device_01.probe_75 %}active{% endif %}" id="probe-item-75">
                     <div class="probe-info">
-                        <span class="probe-pin-badge">D6 / GPIO12</span>
+                        <span class="probe-pin-badge">D5 / GPIO14</span>
                         <div>
                             <div class="probe-name">Probe 3 (75% Mid-High)</div>
                             <div class="probe-sub">Three-quarters level detection</div>
                         </div>
                     </div>
-                    <span class="probe-state-badge" id="probe-state-75">{% if device_01.water_level >= 75 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
+                    <span class="probe-state-badge" id="probe-state-75">{% if device_01.probe_75 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
 
                 <!-- Probe 2: 50% -->
-                <div class="probe-item {% if device_01.water_level >= 50 %}active{% endif %}" id="probe-item-50">
+                <div class="probe-item {% if device_01.probe_50 %}active{% endif %}" id="probe-item-50">
                     <div class="probe-info">
-                        <span class="probe-pin-badge">D5 / GPIO14</span>
+                        <span class="probe-pin-badge">D2 / GPIO4</span>
                         <div>
                             <div class="probe-name">Probe 2 (50% Mid-Low)</div>
                             <div class="probe-sub">Half-tank level detection</div>
                         </div>
                     </div>
-                    <span class="probe-state-badge" id="probe-state-50">{% if device_01.water_level >= 50 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
+                    <span class="probe-state-badge" id="probe-state-50">{% if device_01.probe_50 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
 
                 <!-- Probe 1: 25% -->
-                <div class="probe-item {% if device_01.water_level >= 25 %}active{% endif %}" id="probe-item-25">
+                <div class="probe-item {% if device_01.probe_25 %}active{% endif %}" id="probe-item-25">
                     <div class="probe-info">
-                        <span class="probe-pin-badge">D2 / GPIO4</span>
+                        <span class="probe-pin-badge">D1 / GPIO5</span>
                         <div>
                             <div class="probe-name">Probe 1 (25% Low)</div>
                             <div class="probe-sub">Quarter-tank minimum reserve</div>
                         </div>
                     </div>
-                    <span class="probe-state-badge" id="probe-state-25">{% if device_01.water_level >= 25 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
+                    <span class="probe-state-badge" id="probe-state-25">{% if device_01.probe_25 %}WATER DETECTED{% else %}OPEN (AIR){% endif %}</span>
                 </div>
             </div>
 
@@ -705,7 +705,7 @@
         }
     }
 
-    function updateProbeUI(level) {
+    function updateProbeUI(level, probe25, probe50, probe75, probe100) {
         const fillEl = document.getElementById('tank-water-fill');
         const pctEl = document.getElementById('water-pct-display');
         const labelEl = document.getElementById('water-status-label');
@@ -729,7 +729,13 @@
             else labelEl.textContent = 'Tank Empty (0%)';
         }
 
-        // Update 4 Probes
+        // Determine probe state accurately from individual booleans
+        const is25 = (probe25 !== undefined && probe25 !== null) ? Boolean(probe25) : (numericLvl >= 25);
+        const is50 = (probe50 !== undefined && probe50 !== null) ? Boolean(probe50) : (numericLvl >= 50);
+        const is75 = (probe75 !== undefined && probe75 !== null) ? Boolean(probe75) : (numericLvl >= 75);
+        const is100 = (probe100 !== undefined && probe100 !== null) ? Boolean(probe100) : (numericLvl >= 100);
+
+        // Update 4 Probes UI individually
         const p100 = document.getElementById('probe-item-100');
         const p75 = document.getElementById('probe-item-75');
         const p50 = document.getElementById('probe-item-50');
@@ -741,22 +747,22 @@
         const s25 = document.getElementById('probe-state-25');
 
         if (p100 && s100) {
-            if (numericLvl >= 100) { p100.className = 'probe-item active'; s100.textContent = 'WATER DETECTED'; }
+            if (is100) { p100.className = 'probe-item active'; s100.textContent = 'WATER DETECTED'; }
             else { p100.className = 'probe-item'; s100.textContent = 'OPEN (AIR)'; }
         }
 
         if (p75 && s75) {
-            if (numericLvl >= 75) { p75.className = 'probe-item active'; s75.textContent = 'WATER DETECTED'; }
+            if (is75) { p75.className = 'probe-item active'; s75.textContent = 'WATER DETECTED'; }
             else { p75.className = 'probe-item'; s75.textContent = 'OPEN (AIR)'; }
         }
 
         if (p50 && s50) {
-            if (numericLvl >= 50) { p50.className = 'probe-item active'; s50.textContent = 'WATER DETECTED'; }
+            if (is50) { p50.className = 'probe-item active'; s50.textContent = 'WATER DETECTED'; }
             else { p50.className = 'probe-item'; s50.textContent = 'OPEN (AIR)'; }
         }
 
         if (p25 && s25) {
-            if (numericLvl >= 25) { p25.className = 'probe-item active'; s25.textContent = 'WATER DETECTED'; }
+            if (is25) { p25.className = 'probe-item active'; s25.textContent = 'WATER DETECTED'; }
             else { p25.className = 'probe-item'; s25.textContent = 'OPEN (AIR)'; }
         }
     }
@@ -777,7 +783,7 @@
                 if (data.status === 'success' && data.devices) {
                     const dev1 = data.devices['esp8266_device_01'];
                     if (dev1) {
-                        updateProbeUI(dev1.water_level);
+                        updateProbeUI(dev1.water_level, dev1.probe_25, dev1.probe_50, dev1.probe_75, dev1.probe_100);
                         const timeEl = document.getElementById('time-esp8266_device_01');
                         if (timeEl) timeEl.textContent = dev1.timestamp || 'Never';
 

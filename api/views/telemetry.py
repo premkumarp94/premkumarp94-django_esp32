@@ -18,16 +18,24 @@ def telemetry(request):
             temperature = sensor_values.get("temperature")
             humidity = sensor_values.get("humidity")
             water_level = sensor_values.get("water_level")
+            probe_25 = sensor_values.get("probe_25")
+            probe_50 = sensor_values.get("probe_50")
+            probe_75 = sensor_values.get("probe_75")
+            probe_100 = sensor_values.get("probe_100")
             ack = data.get("ack", "none")
             message = data.get("message", "none")
             
             # Save telemetry reading to database
-            if temperature is not None or humidity is not None or water_level is not None:
+            if temperature is not None or humidity is not None or water_level is not None or probe_25 is not None:
                 TelemetryReading.objects.create(
                     device_id=device_id,
                     temperature=float(temperature) if temperature is not None else None,
                     humidity=float(humidity) if humidity is not None else None,
-                    water_level=float(water_level) if water_level is not None else None
+                    water_level=float(water_level) if water_level is not None else None,
+                    probe_25=bool(probe_25) if probe_25 is not None else None,
+                    probe_50=bool(probe_50) if probe_50 is not None else None,
+                    probe_75=bool(probe_75) if probe_75 is not None else None,
+                    probe_100=bool(probe_100) if probe_100 is not None else None
                 )
 
             # Auto-prune old readings periodically to prevent unbounded DB growth

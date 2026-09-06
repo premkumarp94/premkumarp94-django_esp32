@@ -5,44 +5,48 @@
 #include <ArduinoJson.h>
 
 //==================================================
-// WIFI CONFIGURATION
+// WIFI
 //==================================================
 
 const char* ssid = "TIC_5G-PREM";
 const char* password = "prem@123";
 
 //==================================================
-// DEVICE CONFIGURATION
+// DEVICE
 //==================================================
 
 const char* DEVICE_ID = "esp8266_device_01";
 
-String pendingDeviceMsg = "esp8266 tank monitor booted normally";
+String pendingDeviceMsg = "esp8266 booted normally";
 
 int iterationCount = 0;
 
-
 //==================================================
-// WATER PROBES (4 Level Probes + Common Reference)
+// WATER PROBES
 //==================================================
-// Probe 1: 25% (Low level)
-// Probe 2: 50% (Mid-Low level)
-// Probe 3: 75% (Mid-High level)
-// Probe 4: 100% (Full level)
 
-const int COMMON_PIN    = D1; // GND reference for water (GPIO5)
-const int PROBE_25_PIN  = D2; // 25% Probe  (GPIO4)
-const int PROBE_50_PIN  = D5; // 50% Probe  (GPIO14)
-const int PROBE_75_PIN  = D6; // 75% Probe  (GPIO12)
-const int PROBE_100_PIN = D7; // 100% Probe (GPIO13)
+// Common probe is connected directly to GND.
+//
+// Probe positions:
+//
+// D1 = 25%
+// D2 = 50%
+// D5 = 75%
+// D6 = 100%
 
-// Set to true to use ESP8266 internal INPUT_PULLUP resistors (No external resistors needed!).
-// Disconnected/air = HIGH on pin, Water touching COMMON_PIN(GND) = LOW on pin.
+const int PROBE_25  = D1;
+const int PROBE_50  = D2;
+const int PROBE_75  = D5;
+const int PROBE_100 = D6;
+
+// Using ESP8266 internal pull-up resistors.
+// Probe in air   = HIGH
+// Probe in water = LOW
 const bool USE_INTERNAL_PULLUP = true;
 
 
 //==================================================
-// TELEMETRY SERVERS
+// SERVERS
 //==================================================
 
 const char* serverList[] = {
@@ -102,63 +106,80 @@ bool connectWiFi()
 
 
 //==================================================
-// WATER LEVEL MEASUREMENT (4 Probes)
+// WATER LEVEL
 //==================================================
+
+// Individual probe detection states
+bool probe25Detected  = false;
+bool probe50Detected  = false;
+bool probe75Detected  = false;
+bool probe100Detected = false;
 
 int readWaterLevel()
 {
+  // 1. Turn ON probe supply (Enable internal pull-ups)
   if (USE_INTERNAL_PULLUP)
   {
-    // COMMON_PIN output is LOW (GND)
-    digitalWrite(COMMON_PIN, LOW);
-    delay(50);
-
-    // Active-LOW: In water = LOW (0), Disconnected/Air = HIGH (1 due to pull-up)
-    bool p25  = (digitalRead(PROBE_25_PIN)  == LOW);
-    bool p50  = (digitalRead(PROBE_50_PIN)  == LOW);
-    bool p75  = (digitalRead(PROBE_75_PIN)  == LOW);
-    bool p100 = (digitalRead(PROBE_100_PIN) == LOW);
-
-    Serial.println();
-    Serial.println("===== 4-PROBE TANK LEVEL TEST (INPUT_PULLUP Active-LOW) =====");
-    Serial.print("Probe 1 (25%  - D2/GPIO4)  = "); Serial.println(p25  ? "DETECTED (WATER)" : "OPEN (AIR)");
-    Serial.print("Probe 2 (50%  - D5/GPIO14) = "); Serial.println(p50  ? "DETECTED (WATER)" : "OPEN (AIR)");
-    Serial.print("Probe 3 (75%  - D6/GPIO12) = "); Serial.println(p75  ? "DETECTED (WATER)" : "OPEN (AIR)");
-    Serial.print("Probe 4 (100% - D7/GPIO13) = "); Serial.println(p100 ? "DETECTED (WATER)" : "OPEN (AIR)");
-
-    if (p100) return 100;
-    if (p75)  return 75;
-    if (p50)  return 50;
-    if (p25)  return 25;
-    return 0;
+    pinMode(PROBE_25, INPUT_PULLUP);
+    pinMode(PROBE_50, INPUT_PULLUP);
+    pinMode(PROBE_75, INPUT_PULLUP);
+    pinMode(PROBE_100, INPUT_PULLUP);
   }
-  else
+
+  // Allow voltage to stabilize for 20ms
+  delay(20);
+
+  // 2. Read probe states (Active-LOW: in water = LOW)
+  probe25Detected  = (digitalRead(PROBE_25)  == LOW);
+  probe50Detected  = (digitalRead(PROBE_50)  == LOW);
+  probe75Detected  = (digitalRead(PROBE_75)  == LOW);
+  probe100Detected = (digitalRead(PROBE_100) == LOW);
+
+  // 3. Turn OFF probe supply immediately (High-Impedance INPUT, 0V in water)
+  pinMode(PROBE_25, INPUT);
+  pinMode(PROBE_50, INPUT);
+  pinMode(PROBE_75, INPUT);
+  pinMode(PROBE_100, INPUT);
+
+  Serial.println();
+  Serial.println("===== WATER PROBE TEST =====");
+
+  Serial.print("25%  (D1/GPIO5)  = ");
+  Serial.println(probe25Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  Serial.print("50%  (D2/GPIO4)  = ");
+  Serial.println(probe50Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  Serial.print("75%  (D5/GPIO14) = ");
+  Serial.println(probe75Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  Serial.print("100% (D6/GPIO12) = ");
+  Serial.println(probe100Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  // Highest detected probe determines the level.
+  if (probe100Detected)
   {
-    // Active-HIGH Mode (Requires external pull-down resistors to GND on probes)
-    digitalWrite(COMMON_PIN, HIGH);
-    delay(50);
-
-    bool p25  = (digitalRead(PROBE_25_PIN)  == HIGH);
-    bool p50  = (digitalRead(PROBE_50_PIN)  == HIGH);
-    bool p75  = (digitalRead(PROBE_75_PIN)  == HIGH);
-    bool p100 = (digitalRead(PROBE_100_PIN) == HIGH);
-
-    digitalWrite(COMMON_PIN, LOW);
-
-    Serial.println();
-    Serial.println("===== 4-PROBE TANK LEVEL TEST (External Pull-down Active-HIGH) =====");
-    Serial.print("Probe 1 (25%  - D2/GPIO4)  = "); Serial.println(p25  ? "DETECTED (WATER)" : "OPEN (AIR)");
-    Serial.print("Probe 2 (50%  - D5/GPIO14) = "); Serial.println(p50  ? "DETECTED (WATER)" : "OPEN (AIR)");
-    Serial.print("Probe 3 (75%  - D6/GPIO12) = "); Serial.println(p75  ? "DETECTED (WATER)" : "OPEN (AIR)");
-    Serial.print("Probe 4 (100% - D7/GPIO13) = "); Serial.println(p100 ? "DETECTED (WATER)" : "OPEN (AIR)");
-
-    if (p100) return 100;
-    if (p75)  return 75;
-    if (p50)  return 50;
-    if (p25)  return 25;
-    return 0;
+    return 100;
   }
+
+  if (probe75Detected)
+  {
+    return 75;
+  }
+
+  if (probe50Detected)
+  {
+    return 50;
+  }
+
+  if (probe25Detected)
+  {
+    return 25;
+  }
+
+  return 0;
 }
+
 
 //==================================================
 // HTTP POST JSON
@@ -182,6 +203,9 @@ bool postJson(
   if (strncmp(url, "https://", 8) == 0)
   {
     WiFiClientSecure client;
+
+    // Testing only.
+    // This skips certificate verification.
     client.setInsecure();
 
     if (!http.begin(client, url))
@@ -191,6 +215,7 @@ bool postJson(
     }
 
     http.addHeader("Content-Type", "application/json");
+
     http.setTimeout(5000);
 
     httpCode = http.POST(body);
@@ -213,6 +238,7 @@ bool postJson(
     }
 
     http.addHeader("Content-Type", "application/json");
+
     http.setTimeout(5000);
 
     httpCode = http.POST(body);
@@ -262,6 +288,7 @@ bool discoverServer()
     doc["message"] = "ping";
 
     String body;
+
     serializeJson(doc, body);
 
     String response;
@@ -274,8 +301,10 @@ bool discoverServer()
       activeServer = i;
 
       Serial.println("SERVER CONNECTED!");
+
       Serial.print("Active server: ");
       Serial.println(serverList[i]);
+
       Serial.print("Discovery response: ");
       Serial.println(response);
 
@@ -286,7 +315,9 @@ bool discoverServer()
   }
 
   activeServer = -1;
+
   Serial.println("No server available.");
+
   return false;
 }
 
@@ -307,12 +338,20 @@ String buildTelemetry(
   JsonObject sensor =
       doc.createNestedObject("sensor values");
 
-  sensor["water_level"] = readWaterLevel();
+  int waterLevel = readWaterLevel();
+
+  sensor["water_level"] = waterLevel;
+  sensor["probe_25"]    = probe25Detected;
+  sensor["probe_50"]    = probe50Detected;
+  sensor["probe_75"]    = probe75Detected;
+  sensor["probe_100"]   = probe100Detected;
 
   doc["ack"] = ack;
+
   doc["message"] = message;
 
   String body;
+
   serializeJson(doc, body);
 
   return body;
@@ -320,7 +359,7 @@ String buildTelemetry(
 
 
 //==================================================
-// SEND TELEMETRY
+// SEND NORMAL TELEMETRY
 //==================================================
 
 bool sendTelemetry()
@@ -334,12 +373,15 @@ bool sendTelemetry()
   }
 
   String ack = "dummy_ack";
+
   String message = pendingDeviceMsg;
 
-  String body = buildTelemetry(ack, message);
+  String body =
+      buildTelemetry(ack, message);
 
   Serial.println();
   Serial.println("Sending telemetry:");
+
   Serial.println(body);
 
   String response;
@@ -354,7 +396,9 @@ bool sendTelemetry()
   if (!success)
   {
     Serial.println("Active server failed.");
+
     activeServer = -1;
+
     return false;
   }
 
@@ -363,6 +407,7 @@ bool sendTelemetry()
 
   Serial.println();
   Serial.println("Server response:");
+
   Serial.println(response);
 
   return true;
@@ -376,42 +421,30 @@ bool sendTelemetry()
 void setup()
 {
   Serial.begin(115200);
+
   delay(1000);
 
   Serial.println();
-  Serial.println("==========================================");
-  Serial.println("ESP8266 4-PROBE TANK LEVEL MONITOR");
-  Serial.println("==========================================");
+  Serial.println("====================================");
+  Serial.println("ESP8266 WATER LEVEL DEVICE STARTING");
+  Serial.println("====================================");
+
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);
 
 
   //================================================
-  // WATER PROBE PIN INITIALIZATION
+  // WATER PROBES (Default: OFF / High-Impedance)
   //================================================
 
-  pinMode(COMMON_PIN, OUTPUT);
-
-  if (USE_INTERNAL_PULLUP)
-  {
-    digitalWrite(COMMON_PIN, LOW);
-    pinMode(PROBE_25_PIN,  INPUT_PULLUP);
-    pinMode(PROBE_50_PIN,  INPUT_PULLUP);
-    pinMode(PROBE_75_PIN,  INPUT_PULLUP);
-    pinMode(PROBE_100_PIN, INPUT_PULLUP);
-  }
-  else
-  {
-    digitalWrite(COMMON_PIN, LOW);
-    pinMode(PROBE_25_PIN,  INPUT);
-    pinMode(PROBE_50_PIN,  INPUT);
-    pinMode(PROBE_75_PIN,  INPUT);
-    pinMode(PROBE_100_PIN, INPUT);
-  }
+  pinMode(PROBE_25, INPUT);
+  pinMode(PROBE_50, INPUT);
+  pinMode(PROBE_75, INPUT);
+  pinMode(PROBE_100, INPUT);
 
 
   //================================================
-  // WIFI & SERVER DISCOVERY
+  // WIFI
   //================================================
 
   if (connectWiFi())
@@ -427,19 +460,30 @@ void setup()
 
 void loop()
 {
-  // Make sure WiFi is connected
+  // Make sure WiFi is available
   if (!connectWiFi())
   {
     delay(2000);
+
     return;
   }
 
-  // Send normal telemetry
+
+  //================================================
+  // NORMAL TELEMETRY
+  //================================================
+
   sendTelemetry();
+
+
+  //================================================
+  // ITERATION MESSAGE
+  //================================================
 
   if (iterationCount == 0)
   {
-    pendingDeviceMsg = "came to first iteration";
+    pendingDeviceMsg =
+        "came to first iteration";
   }
 
   iterationCount++;
@@ -447,7 +491,10 @@ void loop()
   Serial.println();
   Serial.print("Iteration: ");
   Serial.println(iterationCount);
+
   Serial.println("------------------------------------");
 
+
+  // Send every 5 seconds
   delay(5000);
 }

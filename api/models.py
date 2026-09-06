@@ -5,6 +5,10 @@ class TelemetryReading(models.Model):
     temperature = models.FloatField(null=True, blank=True)
     humidity = models.FloatField(null=True, blank=True)
     water_level = models.FloatField(null=True, blank=True)
+    probe_25 = models.BooleanField(null=True, blank=True)
+    probe_50 = models.BooleanField(null=True, blank=True)
+    probe_75 = models.BooleanField(null=True, blank=True)
+    probe_100 = models.BooleanField(null=True, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

@@ -21,11 +21,6 @@ const int PROBE_100_PIN = 5;  // 100% probe
 
 //===================== SERVER LIST ==============
 String serverList[] = {
-  "http://192.168.1.1:8000/api/telemetry/",
-  "http://192.168.1.2:8000/api/telemetry/",
-  "http://192.168.1.3:8000/api/telemetry/",
-  "http://192.168.1.4:8000/api/telemetry/",
-  "http://192.168.1.5:8000/api/telemetry/",
   "https://premkumarp94.pythonanywhere.com/api/telemetry/"
 };
 
@@ -49,24 +44,52 @@ void connectWiFi() {
   Serial.println(WiFi.localIP());
 }
 
+//===================== PROBE DETECTION STATES ===
+bool probe25Detected  = false;
+bool probe50Detected  = false;
+bool probe75Detected  = false;
+bool probe100Detected = false;
+
 //------------------------------------------------
 int readWaterLevel() {
+  // Step 1: Discharge any residual capacitance/static on probe pins to GND
+  pinMode(PROBE_25_PIN,  OUTPUT); digitalWrite(PROBE_25_PIN,  LOW);
+  pinMode(PROBE_50_PIN,  OUTPUT); digitalWrite(PROBE_50_PIN,  LOW);
+  pinMode(PROBE_75_PIN,  OUTPUT); digitalWrite(PROBE_75_PIN,  LOW);
+  pinMode(PROBE_100_PIN, OUTPUT); digitalWrite(PROBE_100_PIN, LOW);
+  delay(5);
+
+  // Step 2: Switch probe pins to High-Impedance INPUT mode (no pulldown load)
+  // This allows even weak currents through high-resistance water to pull the pin HIGH
+  pinMode(PROBE_25_PIN,  INPUT);
+  pinMode(PROBE_50_PIN,  INPUT);
+  pinMode(PROBE_75_PIN,  INPUT);
+  pinMode(PROBE_100_PIN, INPUT);
+
+  // Step 3: Pulse reference COMMON pin HIGH (3.3V)
   digitalWrite(COMMON_PIN, HIGH);
-  delay(20);
+  delay(30); // Allow voltage to stabilize across the water column
 
-  bool p25  = digitalRead(PROBE_25_PIN);
-  bool p50  = digitalRead(PROBE_50_PIN);
-  bool p75  = digitalRead(PROBE_75_PIN);
-  bool p100 = digitalRead(PROBE_100_PIN);
+  // Step 4: Sample probe states
+  probe25Detected  = digitalRead(PROBE_25_PIN);
+  probe50Detected  = digitalRead(PROBE_50_PIN);
+  probe75Detected  = digitalRead(PROBE_75_PIN);
+  probe100Detected = digitalRead(PROBE_100_PIN);
 
+  // Step 5: Turn OFF reference pin and re-engage pulldowns to prevent electrolysis
   digitalWrite(COMMON_PIN, LOW);
+  pinMode(PROBE_25_PIN,  INPUT_PULLDOWN);
+  pinMode(PROBE_50_PIN,  INPUT_PULLDOWN);
+  pinMode(PROBE_75_PIN,  INPUT_PULLDOWN);
+  pinMode(PROBE_100_PIN, INPUT_PULLDOWN);
 
-  Serial.printf("P25=%d P50=%d P75=%d P100=%d\n", p25, p50, p75, p100);
+  Serial.printf("P25=%d P50=%d P75=%d P100=%d\n", 
+                probe25Detected, probe50Detected, probe75Detected, probe100Detected);
 
-  if (p100) return 100;
-  if (p75)  return 75;
-  if (p50)  return 50;
-  if (p25)  return 25;
+  if (probe100Detected) return 100;
+  if (probe75Detected)  return 75;
+  if (probe50Detected)  return 50;
+  if (probe25Detected)  return 25;
   return 0;
 }
 
@@ -143,6 +166,10 @@ bool sendTelemetry(String ack, String msg) {
 
   JsonObject sensor = doc.createNestedObject("sensor values");
   sensor["water_level"] = readWaterLevel();
+  sensor["probe_25"]    = probe25Detected;
+  sensor["probe_50"]    = probe50Detected;
+  sensor["probe_75"]    = probe75Detected;
+  sensor["probe_100"]   = probe100Detected;
 
   doc["ack"] = ack;
   doc["message"] = msg;

@@ -3,6 +3,7 @@ import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from api.models import TelemetryReading, DeviceCommand, DeviceLog
+from api.views.status import analyze_tank_timings
 
 request_counter = 0
 
@@ -77,12 +78,21 @@ def telemetry(request):
             now_ist = datetime.datetime.now(ist_offset)
             ist_time_str = now_ist.strftime("%Y%m%d:%H:%M:%S")
 
-            print(f"  => Response to {device_id}: Water Level={latest_water_lvl}% | IST={ist_time_str}")
+            # Determine motor running status for esp8266_device_01
+            try:
+                tank_readings = list(TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp')[:200])
+                fill_analytics = analyze_tank_timings(tank_readings)
+                motor_running = fill_analytics.get("is_filling", False)
+            except Exception:
+                motor_running = False
+
+            print(f"  => Response to {device_id}: Water Level={latest_water_lvl}% | Motor Running={motor_running} | IST={ist_time_str}")
             
             return JsonResponse({
                 "status": "success",
                 "command": server_cmd,
                 "water_level": latest_water_lvl,
+                "motor_running": motor_running,
                 "ist_time": ist_time_str
             })
             

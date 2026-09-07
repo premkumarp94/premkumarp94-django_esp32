@@ -65,6 +65,7 @@ try:
         
         # Simulate discrete 4-probe water level
         water_level = random.choice(PROBE_LEVELS)
+        probe_delay_ms = 20 if water_level in [0, 25, 50] else (50 if water_level in [75, 100] else 30)
         
         # Prepare payload
         ack_val = "dummy_ack"
@@ -80,9 +81,10 @@ try:
             "message": device_msg
         }
         
-        print(f"\n[{timestamp}] Send JSON (to {TELEMETRY_URL}):")
+        print(f"\n[{timestamp}] Probe delay used: {probe_delay_ms} ms | Send JSON (to {TELEMETRY_URL}):")
         print(json.dumps(payload, indent=2))
         
+        motor_running = False
         try:
             headers = {'Content-Type': 'application/json'}
             response = requests.post(TELEMETRY_URL, data=json.dumps(payload), headers=headers, timeout=5)
@@ -91,6 +93,7 @@ try:
                 resp_dict = json.loads(response.text)
                 print(f"[{timestamp}] Receive JSON:")
                 print(json.dumps(resp_dict, indent=2))
+                motor_running = resp_dict.get("motor_running", False)
             else:
                 print(f"[{timestamp}] Error: HTTP status code: {response.status_code}")
                 
@@ -106,6 +109,9 @@ try:
             pending_device_msg = "came to first iteration"
         iteration_count += 1
 
+        # Motor running: check once every 10s. Else check once every 60s (1 minute).
+        loop_interval = 10 if motor_running else 60
+        print(f"[{timestamp}] Motor Running: {motor_running} -> Next check in {loop_interval} seconds")
         print("-" * 40)
         time.sleep(loop_interval)
 

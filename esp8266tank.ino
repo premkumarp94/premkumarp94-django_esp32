@@ -25,15 +25,15 @@ int iterationCount = 0;
 // WATER PROBES & WIRE COLORS
 //==================================================
 // RED    = COM (Reference probe)
-// BLACK  = D6  (100% Probe)
+// BLACK  = D1  (100% Probe)
 // GREEN  = D5  (75% Probe)
 // YELLOW = D2  (50% Probe)
-// BLUE   = D1  (25% Probe)
+// BLUE   = D6  (25% Probe)
 
-const int PROBE_25  = D1; // Blue
+const int PROBE_25  = D6; // Blue
 const int PROBE_50  = D2; // Yellow
 const int PROBE_75  = D5; // Green
-const int PROBE_100 = D6; // Black
+const int PROBE_100 = D1; // Black
 
 // Using ESP8266 internal pull-up resistors.
 // Probe in air   = HIGH
@@ -97,7 +97,19 @@ bool probe50Detected = false;
 bool probe75Detected = false;
 bool probe100Detected = false;
 
+int lastWaterLevel = -1;
+bool motorRunning = false;
+
 int readWaterLevel() {
+  // Dynamic discharge delay based on water level:
+  // 0%, 25%, 50% -> 20ms delay | 75%, 100% -> 50ms delay | default -> 30ms delay
+  int dischargeDelay = 30;
+  if (lastWaterLevel == 0 || lastWaterLevel == 25 || lastWaterLevel == 50) {
+    dischargeDelay = 20;
+  } else if (lastWaterLevel == 75 || lastWaterLevel == 100) {
+    dischargeDelay = 50;
+  }
+
   // 1. Pre-charge probe pins to HIGH (3.3V) briefly
   pinMode(PROBE_25, OUTPUT);
   digitalWrite(PROBE_25, HIGH);
@@ -116,7 +128,7 @@ int readWaterLevel() {
   pinMode(PROBE_100, INPUT);
 
   // Allow high-resistance water path to discharge charge to GND reference
-  delay(30);
+  delay(dischargeDelay);
 
   // 3. Read probe states (In water: charge bleeds to GND -> pin reads LOW. In
   // air: stays HIGH)
@@ -127,8 +139,11 @@ int readWaterLevel() {
 
   Serial.println();
   Serial.println("===== WATER PROBE TEST =====");
+  Serial.print("Discharge Delay Used: ");
+  Serial.print(dischargeDelay);
+  Serial.println(" ms");
 
-  Serial.print("25%  (D1 / BLUE)   = ");
+  Serial.print("25%  (D6 / BLUE)   = ");
   Serial.println(probe25Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
 
   Serial.print("50%  (D2 / YELLOW) = ");
@@ -137,27 +152,25 @@ int readWaterLevel() {
   Serial.print("75%  (D5 / GREEN)  = ");
   Serial.println(probe75Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
 
-  Serial.print("100% (D6 / BLACK)  = ");
+  Serial.print("100% (D1 / BLACK)  = ");
   Serial.println(probe100Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
 
   // Highest detected probe determines the level.
+  int currentLevel = 0;
   if (probe100Detected) {
-    return 100;
+    currentLevel = 100;
+  } else if (probe75Detected) {
+    currentLevel = 75;
+  } else if (probe50Detected) {
+    currentLevel = 50;
+  } else if (probe25Detected) {
+    currentLevel = 25;
+  } else {
+    currentLevel = 0;
   }
 
-  if (probe75Detected) {
-    return 75;
-  }
-
-  if (probe50Detected) {
-    return 50;
-  }
-
-  if (probe25Detected) {
-    return 25;
-  }
-
-  return 0;
+  lastWaterLevel = currentLevel;
+  return currentLevel;
 }
 
 //==================================================
@@ -354,6 +367,17 @@ bool sendTelemetry() {
 
   Serial.println(response);
 
+  // Parse server response to sync motor_running state
+  StaticJsonDocument<512> respDoc;
+  DeserializationError err = deserializeJson(respDoc, response);
+  if (!err) {
+    if (respDoc.containsKey("motor_running")) {
+      motorRunning = respDoc["motor_running"].as<bool>();
+    } else if (respDoc.containsKey("is_filling")) {
+      motorRunning = respDoc["is_filling"].as<bool>();
+    }
+  }
+
   return true;
 }
 
@@ -420,12 +444,16 @@ void loop() {
 
   iterationCount++;
 
+  // Dynamic check interval: 10 seconds if motor is running, 1 minute (60s) if motor idle
+  int checkInterval = motorRunning ? 10000 : 60000;
+
   Serial.println();
   Serial.print("Iteration: ");
   Serial.println(iterationCount);
+  Serial.print("Motor Status: ");
+  Serial.println(motorRunning ? "RUNNING (Checking again in 10s)" : "IDLE (Checking again in 60s)");
 
   Serial.println("------------------------------------");
 
-  // Send every 5 seconds
-  delay(5000);
+  delay(checkInterval);
 }

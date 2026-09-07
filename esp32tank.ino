@@ -50,8 +50,20 @@ bool probe50Detected  = false;
 bool probe75Detected  = false;
 bool probe100Detected = false;
 
+int lastWaterLevel = -1;
+bool motorRunning = false;
+
 //------------------------------------------------
 int readWaterLevel() {
+  // Select probe discharge/stabilization delay based on water level:
+  // 0%, 25%, 50% -> 20ms delay | 75%, 100% -> 50ms delay | default -> 30ms delay
+  int dischargeDelay = 30;
+  if (lastWaterLevel == 0 || lastWaterLevel == 25 || lastWaterLevel == 50) {
+    dischargeDelay = 20;
+  } else if (lastWaterLevel == 75 || lastWaterLevel == 100) {
+    dischargeDelay = 50;
+  }
+
   // Step 1: Discharge any residual capacitance/static on probe pins to GND
   pinMode(PROBE_25_PIN,  OUTPUT); digitalWrite(PROBE_25_PIN,  LOW);
   pinMode(PROBE_50_PIN,  OUTPUT); digitalWrite(PROBE_50_PIN,  LOW);
@@ -68,7 +80,7 @@ int readWaterLevel() {
 
   // Step 3: Pulse reference COMMON pin HIGH (3.3V)
   digitalWrite(COMMON_PIN, HIGH);
-  delay(30); // Allow voltage to stabilize across the water column
+  delay(dischargeDelay); // Allow voltage to stabilize across the water column
 
   // Step 4: Sample probe states
   probe25Detected  = digitalRead(PROBE_25_PIN);
@@ -83,14 +95,18 @@ int readWaterLevel() {
   pinMode(PROBE_75_PIN,  INPUT_PULLDOWN);
   pinMode(PROBE_100_PIN, INPUT_PULLDOWN);
 
-  Serial.printf("P25=%d P50=%d P75=%d P100=%d\n", 
-                probe25Detected, probe50Detected, probe75Detected, probe100Detected);
+  Serial.printf("Discharge Delay: %d ms | P25=%d P50=%d P75=%d P100=%d\n", 
+                dischargeDelay, probe25Detected, probe50Detected, probe75Detected, probe100Detected);
 
-  if (probe100Detected) return 100;
-  if (probe75Detected)  return 75;
-  if (probe50Detected)  return 50;
-  if (probe25Detected)  return 25;
-  return 0;
+  int lvl = 0;
+  if (probe100Detected) lvl = 100;
+  else if (probe75Detected) lvl = 75;
+  else if (probe50Detected) lvl = 50;
+  else if (probe25Detected) lvl = 25;
+  else lvl = 0;
+
+  lastWaterLevel = lvl;
+  return lvl;
 }
 
 //------------------------------------------------
@@ -191,6 +207,17 @@ bool sendTelemetry(String ack, String msg) {
   Serial.println("Response:");
   Serial.println(response);
 
+  // Parse response to sync motorRunning state
+  DynamicJsonDocument respDoc(512);
+  DeserializationError err = deserializeJson(respDoc, response);
+  if (!err) {
+    if (respDoc.containsKey("motor_running")) {
+      motorRunning = respDoc["motor_running"].as<bool>();
+    } else if (respDoc.containsKey("is_filling")) {
+      motorRunning = respDoc["is_filling"].as<bool>();
+    }
+  }
+
   return true;
 }
 
@@ -223,5 +250,9 @@ void loop() {
 
   iterationCount++;
 
-  delay(5000);
+  int checkInterval = motorRunning ? 10000 : 60000;
+  Serial.printf("Motor status: %s | Next check in %d ms\n", 
+                motorRunning ? "RUNNING" : "IDLE", checkInterval);
+
+  delay(checkInterval);
 }

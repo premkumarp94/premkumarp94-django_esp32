@@ -354,9 +354,9 @@ def status(request):
                 "connection_status": "offline"
             }
 
-    # Fetch recent telemetry history for esp8266_device_01 to compute fill analytics & ETA
+    # Fetch recent telemetry history across devices to compute fill analytics & ETA
     try:
-        tank_readings = list(TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp')[:200])
+        tank_readings = list(TelemetryReading.objects.order_by('-timestamp')[:200])
         fill_analytics = analyze_tank_timings(tank_readings, now=now)
     except Exception as e:
         print(f"Fill analytics calculation error: {e}")
@@ -386,10 +386,12 @@ def status(request):
     except Exception:
         overall_latest = None
 
+    active_dev_id = overall_latest.device_id if overall_latest else "esp8266_device_01"
+
     if 'text/html' in accept_header and format_param != 'json':
         context = {
             "devices": devices_data,
-            "device_01": devices_data.get("esp8266_device_01"),
+            "device_01": devices_data.get(active_dev_id) or devices_data.get("esp8266_device_01"),
             "fill_analytics": fill_analytics,
             "has_data": overall_latest is not None,
             "logs": latest_logs

@@ -60,27 +60,31 @@ def telemetry(request):
             print(f"  - Sensor Values: Water Level = {water_level}%, Temp = {temperature} C, Humidity = {humidity} %")
             print(f"  - Acknowledgment: {ack} | Message: {message}")
 
-            # Check pending queued commands for this reporting device
-            pending_cmd = DeviceCommand.objects.filter(device_id=device_id, is_executed=False).first()
+            # Check pending queued commands (matching device_id or any unexecuted command)
+            pending_cmd = DeviceCommand.objects.filter(is_executed=False).filter(
+                device_id__in=[device_id, "esp8266_device_01", "esp32_device_01"]
+            ).first() or DeviceCommand.objects.filter(is_executed=False).first()
+            
             if pending_cmd:
                 server_cmd = pending_cmd.command
                 pending_cmd.is_executed = True
                 pending_cmd.save()
+                print(f"  [COMMAND QUEUED] Delivering command '{server_cmd}' to device {device_id}")
             else:
                 server_cmd = ""
 
-            # Get latest water level reading from tank device (esp8266_device_01)
-            dev1_reading = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
-            latest_water_lvl = dev1_reading.water_level if (dev1_reading and dev1_reading.water_level is not None) else water_level
+            # Get latest water level reading dynamically
+            latest_reading = TelemetryReading.objects.order_by('-timestamp').first()
+            latest_water_lvl = latest_reading.water_level if (latest_reading and latest_reading.water_level is not None) else water_level
 
             # Compute IST time (UTC+5:30) formatted as YYYYMMDD:HH:MM:SS
             ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
             now_ist = datetime.datetime.now(ist_offset)
             ist_time_str = now_ist.strftime("%Y%m%d:%H:%M:%S")
 
-            # Determine motor running status for esp8266_device_01
+            # Determine motor running status dynamically across recent readings
             try:
-                tank_readings = list(TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp')[:200])
+                tank_readings = list(TelemetryReading.objects.order_by('-timestamp')[:200])
                 fill_analytics = analyze_tank_timings(tank_readings)
                 motor_running = fill_analytics.get("is_filling", False)
             except Exception:

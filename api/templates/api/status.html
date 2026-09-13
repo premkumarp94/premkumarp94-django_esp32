@@ -691,7 +691,7 @@
                     <span class="status-dot {% if device_01.connection_status == 'idle' %}idle{% elif device_01.connection_status == 'offline' %}offline{% endif %}" id="card-status-dot"></span>
                     <span class="device-name">Probe Sensor Array</span>
                 </div>
-                <span class="brand-badge" id="device-id-badge">esp8266_device_01</span>
+                <span class="brand-badge" id="device-id-badge">{{ device_01.device_id|default:"esp32_device_01" }}</span>
             </div>
 
             <div class="probes-section-title">Active Probe Channels (Active-LOW Pullup)</div>
@@ -866,6 +866,35 @@
         </div>
     </section>
 
+    <!-- Deep Sleep Configuration Section -->
+    <section class="logs-card" style="border-color: rgba(56, 189, 248, 0.25);">
+        <div class="logs-header">
+            <h2 class="logs-title" style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+                ESP8266 Deep Sleep Controller
+            </h2>
+            <span id="sleep-cmd-status" style="font-size: 0.78rem; font-weight: 600; color: #94a3b8;">Syncs via ESP32 Gateway</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 14px; padding: 4px 0;">
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                Select or enter the deep sleep interval for ESP8266. Updated settings will be sent to the ESP32 gateway and passed to ESP8266 on its next wake-up cycle.
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button onclick="setSleepValue(5)" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">5s (Default)</button>
+                <button onclick="setSleepValue(10)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">10s</button>
+                <button onclick="setSleepValue(30)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">30s</button>
+                <button onclick="setSleepValue(60)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">60s (1m)</button>
+                <button onclick="setSleepValue(300)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">300s (5m)</button>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 4px;">
+                <input type="number" id="custom-sleep-input" min="1" max="86400" value="5" placeholder="Sleep seconds" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; padding: 10px 14px; font-size: 0.95rem; width: 140px;">
+                <button onclick="submitCustomSleep()" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);">Update Deep Sleep</button>
+            </div>
+        </div>
+    </section>
+
     <!-- Live System Activity Logs -->
     <section class="logs-card">
         <div class="logs-header">
@@ -893,6 +922,47 @@
 </div>
 
 <script>
+    async function sendSleepCommand(seconds) {
+        const statusEl = document.getElementById('sleep-cmd-status');
+        if (statusEl) statusEl.textContent = 'Sending command...';
+        try {
+            const resp = await fetch('/api/command/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: 'esp32_device_01', command: `SLEEP:${seconds}` })
+            });
+            const res = await resp.json();
+            if (res.status === 'success') {
+                if (statusEl) {
+                    statusEl.style.color = '#34d399';
+                    statusEl.textContent = `Queued ${seconds}s sleep for next wake-up!`;
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.style.color = '#f87171';
+                    statusEl.textContent = 'Failed to queue command';
+                }
+            }
+        } catch (e) {
+            if (statusEl) {
+                statusEl.style.color = '#f87171';
+                statusEl.textContent = 'Error connecting to server';
+            }
+        }
+    }
+
+    function setSleepValue(val) {
+        document.getElementById('custom-sleep-input').value = val;
+        sendSleepCommand(val);
+    }
+
+    function submitCustomSleep() {
+        const val = parseInt(document.getElementById('custom-sleep-input').value, 10);
+        if (val >= 1 && val <= 86400) {
+            sendSleepCommand(val);
+        }
+    }
+
     const refreshBtn = document.getElementById('refresh-trigger');
     let lastSeenTimestampMs = null;
     let liveEtaSeconds = null;
@@ -1100,10 +1170,14 @@
                 const data = await response.json();
 
                 if (data.status === 'success' && data.devices) {
-                    const dev1 = data.devices['esp8266_device_01'];
+                    const activeId = data.device_id || 'esp32_device_01';
+                    const dev1 = data.devices[activeId] || data.devices['esp32_device_01'] || data.devices['esp8266_device_01'] || Object.values(data.devices)[0];
                     if (dev1) {
+                        const badgeEl = document.getElementById('device-id-badge');
+                        if (badgeEl) badgeEl.textContent = dev1.device_id || activeId;
+
                         updateProbeUI(dev1.water_level, dev1.probe_25, dev1.probe_50, dev1.probe_75, dev1.probe_100);
-                        const timeEl = document.getElementById('time-esp8266_device_01');
+                        const timeEl = document.getElementById('time-esp8266_device_01') || document.getElementById('last-sync-time');
                         if (timeEl) timeEl.textContent = dev1.timestamp || 'Never';
 
                         if (dev1.seconds_ago !== undefined && dev1.seconds_ago !== null) {

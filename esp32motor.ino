@@ -216,6 +216,12 @@ bool sendMotorStatusToServer(const String &extraMessage = "") {
     if (respDoc.containsKey("water_level") && !respDoc["water_level"].isNull()) {
       currentWaterLevel = respDoc["water_level"].as<int>();
       Serial.printf("[esp32motor] Synced live water level: %d%%\n", currentWaterLevel);
+
+      // Local failsafe: auto turn off motor if water level hits 100% and motor is running
+      if (currentWaterLevel >= 100 && motorRunning) {
+        Serial.println("[esp32motor AUTO-SHUTOFF] Tank is 100% FULL! Turning OFF motor...");
+        turnMotorOFF();
+      }
     }
     if (respDoc.containsKey("command")) {
       String cmd = respDoc["command"].as<String>();
@@ -266,7 +272,7 @@ void updateWaterLevelLEDs() {
 //==================================================
 
 void turnMotorON() {
-  Serial.printf("\n>>> TURNING MOTOR ON >>> Rotating SG90 Servo to %d degrees\n", angleON);
+  Serial.printf("\n>>> TURNING MOTOR ON >>> Rotating SG90 Servo to %d degrees for %d ms\n", angleON, holdDurationMs);
   currentAngle = angleON;
   motorRunning = true;
   motorStatus  = "ON";
@@ -275,23 +281,23 @@ void turnMotorON() {
   preferences.putBool("running", true);
   preferences.putString("status", "ON");
 
+  // 1. Instantly rotate servo to START (ON) angle
   motorServo.write(angleON);
 
-  // Immediately notify server after turning ON!
-  sendMotorStatusToServer("motor turned ON (servo rotated to " + String(angleON) + " deg)");
-
-  // Wait configured hold time (default 1000ms), then return servo back to default 90 degrees
+  // 2. Hold at START angle for EXACT configured duration (e.g. 500ms = 0.5s)
   delay(holdDurationMs);
-  Serial.printf(">>> %d MS ELAPSED >>> Returning SG90 Servo back to default 90 degrees\n", holdDurationMs);
+
+  // 3. Immediately return servo back to default 90 degrees resting position
   currentAngle = ANGLE_DEFAULT; // 90 degrees
   motorServo.write(ANGLE_DEFAULT);
+  Serial.printf(">>> %d MS ELAPSED >>> SG90 Servo returned to default 90 degrees\n", holdDurationMs);
 
-  // Notify server that servo returned to 90 deg resting position while motor stays ON
-  sendMotorStatusToServer("servo returned to 90 deg resting position (motor ON)");
+  // 4. Send telemetry sync to Django server AFTER physical servo sequence completes
+  sendMotorStatusToServer("motor turned ON (servo pulsed to " + String(angleON) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
 }
 
 void turnMotorOFF() {
-  Serial.printf("\n>>> TURNING MOTOR OFF >>> Rotating SG90 Servo to %d degrees\n", angleOFF);
+  Serial.printf("\n>>> TURNING MOTOR OFF >>> Rotating SG90 Servo to %d degrees for %d ms\n", angleOFF, holdDurationMs);
   currentAngle = angleOFF;
   motorRunning = false;
   motorStatus  = "OFF";
@@ -300,19 +306,19 @@ void turnMotorOFF() {
   preferences.putBool("running", false);
   preferences.putString("status", "OFF");
 
+  // 1. Instantly rotate servo to STOP (OFF) angle
   motorServo.write(angleOFF);
 
-  // Immediately notify server after turning OFF!
-  sendMotorStatusToServer("motor turned OFF (servo rotated to " + String(angleOFF) + " deg)");
-
-  // Wait configured hold time (default 1000ms), then return servo back to default 90 degrees
+  // 2. Hold at STOP angle for EXACT configured duration (e.g. 500ms = 0.5s)
   delay(holdDurationMs);
-  Serial.printf(">>> %d MS ELAPSED >>> Returning SG90 Servo back to default 90 degrees\n", holdDurationMs);
+
+  // 3. Immediately return servo back to default 90 degrees resting position
   currentAngle = ANGLE_DEFAULT; // 90 degrees
   motorServo.write(ANGLE_DEFAULT);
+  Serial.printf(">>> %d MS ELAPSED >>> SG90 Servo returned to default 90 degrees\n", holdDurationMs);
 
-  // Notify server that servo returned to 90 deg resting position while motor stays OFF
-  sendMotorStatusToServer("servo returned to 90 deg resting position (motor OFF)");
+  // 4. Send telemetry sync to Django server AFTER physical servo sequence completes
+  sendMotorStatusToServer("motor turned OFF (servo pulsed to " + String(angleOFF) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
 }
 
 void processCommand(const String &cmd) {

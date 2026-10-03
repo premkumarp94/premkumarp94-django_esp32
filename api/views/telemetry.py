@@ -78,6 +78,32 @@ def telemetry(request):
                 print(f"  - Motor Report from esp32motor: Status={motor_status}, Running={motor_running}, Servo Angle={servo_angle}°")
             print(f"  - Acknowledgment: {ack} | Message: {message}")
 
+            # Get latest water level reading
+            latest_water_reading = TelemetryReading.objects.filter(water_level__isnull=False).order_by('-timestamp').first()
+            latest_water_lvl = latest_water_reading.water_level if latest_water_reading else water_level
+
+            # Get ACTUAL motor running status from esp32motor.ino (stored in DB)
+            motor_info = get_esp32motor_status()
+            real_motor_running = motor_info["motor_running"]
+
+            # AUTOMATIC MOTOR OFF TRIGGER ON 100% WATER LEVEL:
+            if latest_water_lvl is not None and latest_water_lvl >= 100 and real_motor_running:
+                has_pending_off = DeviceCommand.objects.filter(
+                    device_id__in=["esp32motor", "esp32_motor_01"],
+                    command__icontains="OFF",
+                    is_executed=False
+                ).exists()
+                if not has_pending_off:
+                    DeviceCommand.objects.create(
+                        device_id="esp32motor",
+                        command="MOTOR_OFF"
+                    )
+                    DeviceLog.objects.create(
+                        device_id="SERVER_AUTO",
+                        message="[AUTO-SHUTOFF] Tank Full (100%) detected! Automatically queued MOTOR_OFF for esp32motor."
+                    )
+                    print(f"  [AUTO-SHUTOFF] Tank Full (100%). Queued MOTOR_OFF command for esp32motor.")
+
             # Check pending queued commands
             pending_cmd = DeviceCommand.objects.filter(is_executed=False).filter(
                 device_id__in=[device_id, "esp32motor", "esp32_motor_01", "esp8266_device_01", "esp32_device_01"]
@@ -91,19 +117,10 @@ def telemetry(request):
             else:
                 server_cmd = ""
 
-            # Get latest water level reading
-            latest_water_reading = TelemetryReading.objects.filter(water_level__isnull=False).order_by('-timestamp').first()
-            latest_water_lvl = latest_water_reading.water_level if latest_water_reading else water_level
-
             # Compute IST time (UTC+5:30) formatted as YYYYMMDD:HH:MM:SS
             ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
             now_ist = datetime.datetime.now(ist_offset)
             ist_time_str = now_ist.strftime("%Y%m%d:%H:%M:%S")
-
-            # Get ACTUAL motor running status from esp32motor.ino (stored in DB)
-            # Server DOES NOT assume motor status - fetches directly from esp32motor!
-            motor_info = get_esp32motor_status()
-            real_motor_running = motor_info["motor_running"]
 
             print(f"  => Response to {device_id}: Water Level={latest_water_lvl}% | Motor Running={real_motor_running} (From esp32motor) | IST={ist_time_str}")
             

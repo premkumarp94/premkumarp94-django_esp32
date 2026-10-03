@@ -7,8 +7,17 @@
 //==================================================
 // HARDWARE & SERVO CONFIGURATION (ESP32)
 // SG90 Servo Signal Line connected to Pin D13 (GPIO 13)
+// 4 Water Level Indicator LEDs:
+// - 25% Level LED:  GPIO 25 (Pin D25) [Blinks 0.5s ON / 0.5s OFF when empty]
+// - 50% Level LED:  GPIO 26 (Pin D26)
+// - 75% Level LED:  GPIO 27 (Pin D27)
+// - 100% Level LED: GPIO 14 (Pin D14)
 //==================================================
-const int SERVO_PIN = 13;
+const int SERVO_PIN   = 13;
+const int LED_25_PIN  = 25;
+const int LED_50_PIN  = 26;
+const int LED_75_PIN  = 27;
+const int LED_100_PIN = 14;
 
 // Angle definitions:
 // Startup / Default: 90 degrees
@@ -20,10 +29,14 @@ const int ANGLE_OFF     = 135;
 
 Servo motorServo;
 
-// Motor State Tracking
-bool motorRunning  = false;
-int currentAngle   = ANGLE_DEFAULT;
-String motorStatus = "OFF";
+// Motor & Telemetry State Tracking
+bool motorRunning     = false;
+int currentAngle      = ANGLE_DEFAULT;
+String motorStatus    = "OFF";
+int currentWaterLevel = 0; // Synced water level from Django server
+
+// Loop timer tracking
+unsigned long lastSyncTime = 0;
 
 //==================================================
 // WIFI CREDENTIALS & DEVICE IDENTIFIER
@@ -42,8 +55,9 @@ int activeServer = -1;
 
 String pendingMsg = "esp32motor booted - default angle set to 90 deg";
 
-// Forward declaration
+// Forward declarations
 void processCommand(const String &cmd);
+void updateWaterLevelLEDs();
 
 //==================================================
 // WIFI CONNECTION
@@ -185,21 +199,56 @@ bool sendMotorStatusToServer(const String &extraMessage = "") {
   Serial.println("Server Response:");
   Serial.println(response);
 
-  // Parse server response to process queued motor commands
+  // Parse server response for water level & queued motor commands
   StaticJsonDocument<512> respDoc;
   DeserializationError err = deserializeJson(respDoc, response);
-  if (!err && respDoc.containsKey("command")) {
-    String cmd = respDoc["command"].as<String>();
-    cmd.trim();
-    cmd.toUpperCase();
-    if (cmd.length() > 0) {
-      Serial.print("[COMMAND DELIVERED] Executing command: ");
-      Serial.println(cmd);
-      processCommand(cmd);
+  if (!err) {
+    if (respDoc.containsKey("water_level") && !respDoc["water_level"].isNull()) {
+      currentWaterLevel = respDoc["water_level"].as<int>();
+      Serial.printf("[esp32motor] Synced live water level: %d%%\n", currentWaterLevel);
+    }
+    if (respDoc.containsKey("command")) {
+      String cmd = respDoc["command"].as<String>();
+      cmd.trim();
+      cmd.toUpperCase();
+      if (cmd.length() > 0) {
+        Serial.print("[COMMAND DELIVERED] Executing command: ");
+        Serial.println(cmd);
+        processCommand(cmd);
+      }
     }
   }
 
   return true;
+}
+
+//==================================================
+// 4-LED WATER LEVEL INDICATOR CONTROL
+//==================================================
+void updateWaterLevelLEDs() {
+  static unsigned long lastBlinkTime = 0;
+  static bool blinkState = false;
+  unsigned long now = millis();
+
+  // Non-blocking 0.5-second blink timer (500 ms ON / 500 ms OFF)
+  if (now - lastBlinkTime >= 500) {
+    lastBlinkTime = now;
+    blinkState = !blinkState;
+  }
+
+  if (currentWaterLevel <= 0) {
+    // TANK EMPTY (0%): Blink 25% LED (0.5s ON / 0.5s OFF), other LEDs OFF
+    digitalWrite(LED_25_PIN, blinkState ? HIGH : LOW);
+    digitalWrite(LED_50_PIN, LOW);
+    digitalWrite(LED_75_PIN, LOW);
+    digitalWrite(LED_100_PIN, LOW);
+  } else {
+    // Tank has water level: 25% LED is solid ON
+    digitalWrite(LED_25_PIN, (currentWaterLevel >= 25) ? HIGH : LOW);
+    digitalWrite(LED_50_PIN, (currentWaterLevel >= 50) ? HIGH : LOW);
+    digitalWrite(LED_75_PIN, (currentWaterLevel >= 75) ? HIGH : LOW);
+    digitalWrite(LED_100_PIN, (currentWaterLevel >= 100) ? HIGH : LOW);
+  }
 }
 
 //==================================================
@@ -265,8 +314,19 @@ void setup() {
 
   Serial.println();
   Serial.println("==================================================");
-  Serial.println("ESP32 MOTOR PROGRAM (SG90 Servo @ Pin D13)");
+  Serial.println("ESP32 MOTOR PROGRAM (SG90 Servo @ Pin D13 + 4 Water Level LEDs)");
   Serial.println("==================================================");
+
+  // Configure LED pins as outputs
+  pinMode(LED_25_PIN, OUTPUT);
+  pinMode(LED_50_PIN, OUTPUT);
+  pinMode(LED_75_PIN, OUTPUT);
+  pinMode(LED_100_PIN, OUTPUT);
+
+  digitalWrite(LED_25_PIN, LOW);
+  digitalWrite(LED_50_PIN, LOW);
+  digitalWrite(LED_75_PIN, LOW);
+  digitalWrite(LED_100_PIN, LOW);
 
   // CAREFULLY SET DEFAULT ANGLE EVEN AT STARTUP TO 90 DEGREES
   motorServo.setPeriodHertz(50);             // Standard 50Hz servo PWM frequency
@@ -279,6 +339,7 @@ void setup() {
   motorStatus  = "OFF";
 
   Serial.printf("Servo attached to GPIO 13 (D13). Startup default angle: %d deg\n", currentAngle);
+  Serial.printf("LED Pins configured: 25%%=D25, 50%%=D26, 75%%=D27, 100%%=D14\n");
 
   // Connect to WiFi network
   if (connectWiFi()) {
@@ -296,8 +357,16 @@ void loop() {
     connectWiFi();
   }
 
-  // Continuously sync telemetry and poll queued commands from server
-  sendMotorStatusToServer();
+  // Continuously update LED display (0.5s blink on 25% LED when empty)
+  updateWaterLevelLEDs();
 
-  delay(2000); // Poll server every 2 seconds
+  // Sync telemetry and poll server commands every 2 seconds
+  unsigned long now = millis();
+  if (now - lastSyncTime >= 2000) {
+    lastSyncTime = now;
+    sendMotorStatusToServer();
+  }
+
+  delay(10);
 }
+

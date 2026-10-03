@@ -31,12 +31,14 @@ def get_esp32motor_status():
         
     if reading:
         is_on = reading.motor_running if reading.motor_running is not None else (str(reading.motor_status).upper() in ["ON", "RUNNING", "TRUE"])
-        status_text = reading.motor_status or ("Motor ON (45°)" if is_on else "Motor OFF (135°)")
         angle = reading.servo_angle if reading.servo_angle is not None else (45 if is_on else (135 if str(reading.motor_status).upper() == "OFF" else 90))
+        status_label = "Motor ON" if is_on else "Motor OFF"
+        status_text = f"{status_label} (Servo: {angle}°)"
         return {
             "has_data": True,
             "motor_running": is_on,
             "motor_status": status_text,
+            "raw_status": reading.motor_status or ("ON" if is_on else "OFF"),
             "servo_angle": angle,
             "device_id": reading.device_id,
             "timestamp": reading.timestamp
@@ -45,7 +47,8 @@ def get_esp32motor_status():
     return {
         "has_data": False,
         "motor_running": False,
-        "motor_status": "OFF (Default 90°)",
+        "motor_status": "Motor OFF (Servo: 90°)",
+        "raw_status": "OFF",
         "servo_angle": 90,
         "device_id": "esp32motor",
         "timestamp": None
@@ -75,7 +78,7 @@ def analyze_tank_timings(readings, now=None):
         "total_fill_time_seconds": None,
         "total_fill_time_text": "--",
         "eta_seconds": None,
-        "eta_text": "Motor not running",
+        "eta_text": "Motor OFF",
         "eta_target_time": "--",
         "avg_step_seconds": 180.0
     }
@@ -246,8 +249,8 @@ def analyze_tank_timings(readings, now=None):
     elif is_actively_filling:
         result["is_filling"] = True
         result["motor_detected"] = True
-        result["motor_status_text"] = f"Motor ON (Servo: 45°)"
-        result["servo_angle"] = 45
+        result["motor_status_text"] = f"Motor ON (Servo: {servo_angle}°)"
+        result["servo_angle"] = servo_angle
 
         if curr_lvl == 75:
             step_75_100_est = latest_step_reference

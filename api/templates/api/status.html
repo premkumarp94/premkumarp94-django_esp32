@@ -968,10 +968,29 @@
 <script>
     async function sendMotorCommand(cmd) {
         const statusEl = document.getElementById('motor-cmd-status');
+        const motorBadge = document.getElementById('motor-detected-badge');
+        const motorLabel = document.getElementById('motor-status-label');
+        const motorDot = document.getElementById('motor-status-dot');
+        const statusTextEl = document.getElementById('motor-info-status-text');
+
         if (statusEl) {
             statusEl.style.color = '#38bdf8';
             statusEl.textContent = `Queuing command '${cmd}'...`;
         }
+
+        // Immediate optimistic UI response
+        if (cmd === 'MOTOR_ON' || cmd === 'ON' || cmd === 'START') {
+            if (motorBadge) motorBadge.className = 'motor-badge running';
+            if (motorDot) motorDot.className = 'status-dot';
+            if (motorLabel) motorLabel.textContent = 'Motor ON (Syncing...)';
+            if (statusTextEl) statusTextEl.innerHTML = '<span style="color: #38bdf8;">MOTOR ON (45° Pulse)</span>';
+        } else if (cmd === 'MOTOR_OFF' || cmd === 'OFF' || cmd === 'STOP') {
+            if (motorBadge) motorBadge.className = 'motor-badge';
+            if (motorDot) motorDot.className = 'status-dot idle';
+            if (motorLabel) motorLabel.textContent = 'Motor OFF (Syncing...)';
+            if (statusTextEl) statusTextEl.innerHTML = '<span style="color: #94a3b8;">MOTOR OFF (135° Pulse)</span>';
+        }
+
         try {
             const resp = await fetch('/api/command/', {
                 method: 'POST',
@@ -982,8 +1001,11 @@
             if (res.status === 'success') {
                 if (statusEl) {
                     statusEl.style.color = '#34d399';
-                    statusEl.textContent = `Queued '${cmd}' for esp32motor!`;
+                    statusEl.textContent = `Queued '${cmd}' for esp32motor! Syncing...`;
                 }
+                setTimeout(fetchLatestData, 500);
+                setTimeout(fetchLatestData, 1500);
+                setTimeout(fetchLatestData, 3000);
             } else {
                 if (statusEl) {
                     statusEl.style.color = '#f87171';
@@ -1194,7 +1216,7 @@
         if (analytics.is_filling) {
             if (motorBadge) motorBadge.className = 'motor-badge running';
             if (motorDot) motorDot.className = 'status-dot';
-            if (motorLabel) motorLabel.textContent = analytics.motor_status_text || 'Motor Running (Filling)';
+            if (motorLabel) motorLabel.textContent = analytics.motor_status_text || 'Motor ON (Filling)';
             if (fillWave) fillWave.classList.add('filling-wave');
 
             liveEtaSeconds = analytics.eta_seconds;
@@ -1203,7 +1225,7 @@
         } else if (currentLevel >= 100) {
             if (motorBadge) motorBadge.className = 'motor-badge full';
             if (motorDot) motorDot.className = 'status-dot';
-            if (motorLabel) motorLabel.textContent = 'Tank Full (100%)';
+            if (motorLabel) motorLabel.textContent = analytics.motor_status_text || 'Tank Full (100%)';
             if (fillWave) fillWave.classList.remove('filling-wave');
 
             liveEtaSeconds = 0;
@@ -1212,11 +1234,11 @@
         } else {
             if (motorBadge) motorBadge.className = 'motor-badge';
             if (motorDot) motorDot.className = 'status-dot idle';
-            if (motorLabel) motorLabel.textContent = 'Motor Idle (Standby)';
+            if (motorLabel) motorLabel.textContent = analytics.motor_status_text || 'Motor OFF';
             if (fillWave) fillWave.classList.remove('filling-wave');
 
             liveEtaSeconds = null;
-            if (etaVal) etaVal.textContent = 'Motor Idle';
+            if (etaVal) etaVal.textContent = 'Motor OFF';
             if (etaSub) etaSub.textContent = 'Calculated automatically when water rises';
         }
     }
@@ -1264,9 +1286,9 @@
                             const angleTextEl = document.getElementById('motor-info-angle-text');
                             if (statusTextEl) {
                                 if (data.motor_info.motor_running) {
-                                    statusTextEl.innerHTML = '<span style="color: #38bdf8;">MOTOR ON (45°)</span>';
+                                    statusTextEl.innerHTML = `<span style="color: #38bdf8;">MOTOR ON (Servo: ${data.motor_info.servo_angle !== undefined ? data.motor_info.servo_angle : 45}°)</span>`;
                                 } else {
-                                    statusTextEl.innerHTML = `<span style="color: #94a3b8;">MOTOR OFF (${data.motor_info.servo_angle !== undefined ? data.motor_info.servo_angle : 135}°)</span>`;
+                                    statusTextEl.innerHTML = `<span style="color: #94a3b8;">MOTOR OFF (Servo: ${data.motor_info.servo_angle !== undefined ? data.motor_info.servo_angle : 135}°)</span>`;
                                 }
                             }
                             if (angleTextEl) {

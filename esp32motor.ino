@@ -35,11 +35,6 @@ const char *DEVICE_ID = "esp32motor";
 
 // Candidate Server endpoints (Local PC LAN & Cloud PythonAnywhere fallback)
 const char *serverList[] = {
-    "http://192.168.1.7:8000/api/telemetry/",
-    "http://192.168.1.2:8000/api/telemetry/",
-    "http://192.168.1.3:8000/api/telemetry/",
-    "http://192.168.1.4:8000/api/telemetry/",
-    "http://192.168.1.5:8000/api/telemetry/",
     "https://premkumarp94.pythonanywhere.com/api/telemetry/"
 };
 const int SERVER_COUNT = sizeof(serverList) / sizeof(serverList[0]);
@@ -218,10 +213,18 @@ void turnMotorON() {
   motorStatus  = "ON";
 
   motorServo.write(ANGLE_ON);
-  delay(350); // Allow physical servo arm to rotate to position
 
   // Immediately notify server after turning ON!
   sendMotorStatusToServer("motor turned ON (servo rotated to 45 deg)");
+
+  // Wait 2 seconds, then return servo back to default 90 degrees
+  delay(2000);
+  Serial.println(">>> 2 SECONDS ELAPSED >>> Returning SG90 Servo back to default 90 degrees");
+  currentAngle = ANGLE_DEFAULT; // 90 degrees
+  motorServo.write(ANGLE_DEFAULT);
+
+  // Notify server that servo returned to 90 deg resting position while motor stays ON
+  sendMotorStatusToServer("servo returned to 90 deg resting position (motor ON)");
 }
 
 void turnMotorOFF() {
@@ -231,25 +234,25 @@ void turnMotorOFF() {
   motorStatus  = "OFF";
 
   motorServo.write(ANGLE_OFF);
-  delay(350); // Allow physical servo arm to rotate to position
 
   // Immediately notify server after turning OFF!
   sendMotorStatusToServer("motor turned OFF (servo rotated to 135 deg)");
+
+  // Wait 2 seconds, then return servo back to default 90 degrees
+  delay(2000);
+  Serial.println(">>> 2 SECONDS ELAPSED >>> Returning SG90 Servo back to default 90 degrees");
+  currentAngle = ANGLE_DEFAULT; // 90 degrees
+  motorServo.write(ANGLE_DEFAULT);
+
+  // Notify server that servo returned to 90 deg resting position while motor stays OFF
+  sendMotorStatusToServer("servo returned to 90 deg resting position (motor OFF)");
 }
 
 void processCommand(const String &cmd) {
   if (cmd == "MOTOR_ON" || cmd == "ON" || cmd == "TURN_ON" || cmd == "START" || cmd == "45") {
-    if (!motorRunning || currentAngle != ANGLE_ON) {
-      turnMotorON();
-    } else {
-      Serial.println("[esp32motor] Motor is ALREADY ON (45 deg).");
-    }
+    turnMotorON();
   } else if (cmd == "MOTOR_OFF" || cmd == "OFF" || cmd == "TURN_OFF" || cmd == "STOP" || cmd == "135") {
-    if (motorRunning || currentAngle != ANGLE_OFF) {
-      turnMotorOFF();
-    } else {
-      Serial.println("[esp32motor] Motor is ALREADY OFF (135 deg).");
-    }
+    turnMotorOFF();
   }
 }
 
@@ -296,5 +299,5 @@ void loop() {
   // Continuously sync telemetry and poll queued commands from server
   sendMotorStatusToServer();
 
-  delay(5000); // Poll server every 5 seconds
+  delay(2000); // Poll server every 2 seconds
 }

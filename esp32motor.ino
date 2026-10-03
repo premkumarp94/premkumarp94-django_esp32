@@ -3,6 +3,9 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 //==================================================
 // HARDWARE & SERVO CONFIGURATION (ESP32)
@@ -20,14 +23,15 @@ const int LED_75_PIN  = 27;
 const int LED_100_PIN = 14;
 
 // Angle definitions:
-// Startup / Default: 90 degrees
-// Motor ON: 45 degrees
-// Motor OFF: 135 degrees
+// Startup / Resting Default: 90 degrees
+// Configurable ON Angle (default 45), OFF Angle (default 135), and Hold Duration (default 1000ms = 1s)
 const int ANGLE_DEFAULT = 90;
-const int ANGLE_ON      = 45;
-const int ANGLE_OFF     = 135;
+int angleON             = 45;
+int angleOFF            = 135;
+int holdDurationMs      = 1000; // Configurable hold time in ms before returning to 90 deg (default 1000ms)
 
 Servo motorServo;
+Preferences preferences;
 
 // Motor & Telemetry State Tracking
 bool motorRunning     = false;
@@ -140,6 +144,9 @@ bool discoverServer() {
     doc["motor_status"] = motorStatus;
     doc["motor_running"] = motorRunning;
     doc["servo_angle"] = currentAngle;
+    doc["angle_on"] = angleON;
+    doc["angle_off"] = angleOFF;
+    doc["hold_ms"] = holdDurationMs;
     doc["message"] = "ping";
 
     String body, response;
@@ -171,6 +178,9 @@ bool sendMotorStatusToServer(const String &extraMessage = "") {
   doc["motor_status"] = motorStatus;
   doc["motor_running"] = motorRunning;
   doc["servo_angle"] = currentAngle;
+  doc["angle_on"] = angleON;
+  doc["angle_off"] = angleOFF;
+  doc["hold_ms"] = holdDurationMs;
   doc["ack"] = "esp32motor_ok";
 
   if (extraMessage.length() > 0) {
@@ -256,19 +266,23 @@ void updateWaterLevelLEDs() {
 //==================================================
 
 void turnMotorON() {
-  Serial.println("\n>>> TURNING MOTOR ON >>> Rotating SG90 Servo to 45 degrees");
-  currentAngle = ANGLE_ON;   // 45 degrees
+  Serial.printf("\n>>> TURNING MOTOR ON >>> Rotating SG90 Servo to %d degrees\n", angleON);
+  currentAngle = angleON;
   motorRunning = true;
   motorStatus  = "ON";
 
-  motorServo.write(ANGLE_ON);
+  // Persist motor state in flash memory
+  preferences.putBool("running", true);
+  preferences.putString("status", "ON");
+
+  motorServo.write(angleON);
 
   // Immediately notify server after turning ON!
-  sendMotorStatusToServer("motor turned ON (servo rotated to 45 deg)");
+  sendMotorStatusToServer("motor turned ON (servo rotated to " + String(angleON) + " deg)");
 
-  // Wait 2 seconds, then return servo back to default 90 degrees
-  delay(2000);
-  Serial.println(">>> 2 SECONDS ELAPSED >>> Returning SG90 Servo back to default 90 degrees");
+  // Wait configured hold time (default 1000ms), then return servo back to default 90 degrees
+  delay(holdDurationMs);
+  Serial.printf(">>> %d MS ELAPSED >>> Returning SG90 Servo back to default 90 degrees\n", holdDurationMs);
   currentAngle = ANGLE_DEFAULT; // 90 degrees
   motorServo.write(ANGLE_DEFAULT);
 
@@ -277,19 +291,23 @@ void turnMotorON() {
 }
 
 void turnMotorOFF() {
-  Serial.println("\n>>> TURNING MOTOR OFF >>> Rotating SG90 Servo to 135 degrees");
-  currentAngle = ANGLE_OFF;  // 135 degrees
+  Serial.printf("\n>>> TURNING MOTOR OFF >>> Rotating SG90 Servo to %d degrees\n", angleOFF);
+  currentAngle = angleOFF;
   motorRunning = false;
   motorStatus  = "OFF";
 
-  motorServo.write(ANGLE_OFF);
+  // Persist motor state in flash memory
+  preferences.putBool("running", false);
+  preferences.putString("status", "OFF");
+
+  motorServo.write(angleOFF);
 
   // Immediately notify server after turning OFF!
-  sendMotorStatusToServer("motor turned OFF (servo rotated to 135 deg)");
+  sendMotorStatusToServer("motor turned OFF (servo rotated to " + String(angleOFF) + " deg)");
 
-  // Wait 2 seconds, then return servo back to default 90 degrees
-  delay(2000);
-  Serial.println(">>> 2 SECONDS ELAPSED >>> Returning SG90 Servo back to default 90 degrees");
+  // Wait configured hold time (default 1000ms), then return servo back to default 90 degrees
+  delay(holdDurationMs);
+  Serial.printf(">>> %d MS ELAPSED >>> Returning SG90 Servo back to default 90 degrees\n", holdDurationMs);
   currentAngle = ANGLE_DEFAULT; // 90 degrees
   motorServo.write(ANGLE_DEFAULT);
 
@@ -298,9 +316,61 @@ void turnMotorOFF() {
 }
 
 void processCommand(const String &cmd) {
-  if (cmd == "MOTOR_ON" || cmd == "ON" || cmd == "TURN_ON" || cmd == "START" || cmd == "45") {
+  if (cmd.startsWith("SET_HOLD_TIME:") || cmd.startsWith("HOLD_MS:")) {
+    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+    if (val >= 100 && val <= 30000) {
+      holdDurationMs = val;
+      preferences.putInt("holdMs", holdDurationMs);
+      Serial.printf("[esp32motor] Updated Return to Default Hold Time: %d ms\n", holdDurationMs);
+      sendMotorStatusToServer("updated return delay to " + String(holdDurationMs) + " ms");
+    }
+  } else if (cmd.startsWith("SET_HOLD_SEC:")) {
+    float sec = cmd.substring(13).toFloat();
+    int val = (int)(sec * 1000.0);
+    if (val >= 100 && val <= 30000) {
+      holdDurationMs = val;
+      preferences.putInt("holdMs", holdDurationMs);
+      Serial.printf("[esp32motor] Updated Return to Default Hold Time: %d ms\n", holdDurationMs);
+      sendMotorStatusToServer("updated return delay to " + String(holdDurationMs) + " ms");
+    }
+  } else if (cmd.startsWith("SET_ON_ANGLE:") || cmd.startsWith("ANGLE_ON:")) {
+    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+    if (val >= 0 && val <= 180) {
+      angleON = val;
+      preferences.putInt("angleON", angleON);
+      Serial.printf("[esp32motor] Updated Start (ON) Angle to: %d deg\n", angleON);
+      sendMotorStatusToServer("updated motor start angle to " + String(angleON) + " deg");
+    }
+  } else if (cmd.startsWith("SET_OFF_ANGLE:") || cmd.startsWith("ANGLE_OFF:")) {
+    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+    if (val >= 0 && val <= 180) {
+      angleOFF = val;
+      preferences.putInt("angleOFF", angleOFF);
+      Serial.printf("[esp32motor] Updated Stop (OFF) Angle to: %d deg\n", angleOFF);
+      sendMotorStatusToServer("updated motor stop angle to " + String(angleOFF) + " deg");
+    }
+  } else if (cmd.startsWith("SET_ANGLES:")) {
+    String rest = cmd.substring(11);
+    int comma = rest.indexOf(',');
+    if (comma > 0) {
+      int onVal = rest.substring(0, comma).toInt();
+      int offVal = rest.substring(comma + 1).toInt();
+      if (onVal >= 0 && onVal <= 180) { angleON = onVal; preferences.putInt("angleON", angleON); }
+      if (offVal >= 0 && offVal <= 180) { angleOFF = offVal; preferences.putInt("angleOFF", angleOFF); }
+      Serial.printf("[esp32motor] Updated angles: ON=%d deg, OFF=%d deg\n", angleON, angleOFF);
+      sendMotorStatusToServer("updated motor angles: ON=" + String(angleON) + " deg, OFF=" + String(angleOFF) + " deg");
+    }
+  } else if (cmd == "MOTOR_ON" || cmd == "ON" || cmd == "TURN_ON" || cmd == "START" || cmd.startsWith("MOTOR_ON:")) {
+    if (cmd.startsWith("MOTOR_ON:")) {
+      int val = cmd.substring(9).toInt();
+      if (val >= 0 && val <= 180) { angleON = val; preferences.putInt("angleON", angleON); }
+    }
     turnMotorON();
-  } else if (cmd == "MOTOR_OFF" || cmd == "OFF" || cmd == "TURN_OFF" || cmd == "STOP" || cmd == "135") {
+  } else if (cmd == "MOTOR_OFF" || cmd == "OFF" || cmd == "TURN_OFF" || cmd == "STOP" || cmd.startsWith("MOTOR_OFF:")) {
+    if (cmd.startsWith("MOTOR_OFF:")) {
+      int val = cmd.substring(10).toInt();
+      if (val >= 0 && val <= 180) { angleOFF = val; preferences.putInt("angleOFF", angleOFF); }
+    }
     turnMotorOFF();
   }
 }
@@ -309,6 +379,9 @@ void processCommand(const String &cmd) {
 // SETUP
 //==================================================
 void setup() {
+  // Disable brownout detector to prevent ESP32 reset during servo current spikes
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   Serial.begin(115200);
   delay(1000);
 
@@ -316,6 +389,14 @@ void setup() {
   Serial.println("==================================================");
   Serial.println("ESP32 MOTOR PROGRAM (SG90 Servo @ Pin D13 + 4 Water Level LEDs)");
   Serial.println("==================================================");
+
+  // Initialize NVS Preferences storage to persist motor state, angles & hold delay across reboots
+  preferences.begin("esp32motor", false);
+  motorRunning   = preferences.getBool("running", false);
+  motorStatus    = preferences.getString("status", motorRunning ? "ON" : "OFF");
+  angleON        = preferences.getInt("angleON", 45);
+  angleOFF       = preferences.getInt("angleOFF", 135);
+  holdDurationMs = preferences.getInt("holdMs", 1000);
 
   // Configure LED pins as outputs
   pinMode(LED_25_PIN, OUTPUT);
@@ -335,17 +416,17 @@ void setup() {
   motorServo.write(ANGLE_DEFAULT);           // Ensure angle is firmly 90 degrees at startup
 
   currentAngle = ANGLE_DEFAULT; // 90 degrees
-  motorRunning = false;
-  motorStatus  = "OFF";
 
   Serial.printf("Servo attached to GPIO 13 (D13). Startup default angle: %d deg\n", currentAngle);
+  Serial.printf("Configured Angles: ON=%d deg, OFF=%d deg | Hold Delay=%d ms\n", angleON, angleOFF, holdDurationMs);
+  Serial.printf("Restored Motor State: Running=%s, Status=%s\n", motorRunning ? "true" : "false", motorStatus.c_str());
   Serial.printf("LED Pins configured: 25%%=D25, 50%%=D26, 75%%=D27, 100%%=D14\n");
 
   // Connect to WiFi network
   if (connectWiFi()) {
     discoverServer();
     // Notify server of startup status & default 90 deg angle
-    sendMotorStatusToServer("esp32motor booted - default startup angle set to 90 deg");
+    sendMotorStatusToServer("esp32motor booted - state, angles & hold delay restored from flash");
   }
 }
 
@@ -369,4 +450,5 @@ void loop() {
 
   delay(10);
 }
+
 

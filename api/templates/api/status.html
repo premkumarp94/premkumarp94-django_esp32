@@ -899,14 +899,38 @@
             </div>
 
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button onclick="sendMotorCommand('MOTOR_ON')" style="flex: 1; min-width: 160px; background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <button onclick="triggerMotorOnWithAngle()" style="flex: 1; min-width: 160px; background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    Turn Motor ON (45°)
+                    Turn Motor ON
                 </button>
-                <button onclick="sendMotorCommand('MOTOR_OFF')" style="flex: 1; min-width: 160px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <button onclick="triggerMotorOffWithAngle()" style="flex: 1; min-width: 160px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12"></rect></svg>
-                    Turn Motor OFF (135°)
+                    Turn Motor OFF
                 </button>
+            </div>
+
+            <!-- Servo Angles & Return Delay Configuration -->
+            <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #38bdf8; text-transform: uppercase;">
+                    Configure SG90 Servo Angles & Return to 90° Delay
+                </div>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                        <label for="motor-on-angle-input" style="font-size: 0.75rem; color: var(--text-secondary);">Start Angle (ON):</label>
+                        <input type="number" id="motor-on-angle-input" min="0" max="180" value="45" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                        <label for="motor-off-angle-input" style="font-size: 0.75rem; color: var(--text-secondary);">Stop Angle (OFF):</label>
+                        <input type="number" id="motor-off-angle-input" min="0" max="180" value="135" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                        <label for="motor-hold-sec-input" style="font-size: 0.75rem; color: var(--text-secondary);">Return Delay (Sec):</label>
+                        <input type="number" id="motor-hold-sec-input" min="0.1" max="30" step="0.1" value="1.0" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                    </div>
+                    <button onclick="syncMotorAngles()" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 9px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; align-self: flex-end;">
+                        Sync Config
+                    </button>
+                </div>
             </div>
         </div>
     </section>
@@ -966,6 +990,25 @@
         </div>
     </section>
 <script>
+    function triggerMotorOnWithAngle() {
+        const onAngle = parseInt(document.getElementById('motor-on-angle-input')?.value || 45, 10);
+        sendMotorCommand(`MOTOR_ON:${onAngle}`);
+    }
+
+    function triggerMotorOffWithAngle() {
+        const offAngle = parseInt(document.getElementById('motor-off-angle-input')?.value || 135, 10);
+        sendMotorCommand(`MOTOR_OFF:${offAngle}`);
+    }
+
+    async function syncMotorAngles() {
+        const onAngle = parseInt(document.getElementById('motor-on-angle-input')?.value || 45, 10);
+        const offAngle = parseInt(document.getElementById('motor-off-angle-input')?.value || 135, 10);
+        const holdSec = parseFloat(document.getElementById('motor-hold-sec-input')?.value || 1.0);
+        
+        await sendMotorCommand(`SET_ANGLES:${onAngle},${offAngle}`);
+        await sendMotorCommand(`SET_HOLD_SEC:${holdSec}`);
+    }
+
     async function sendMotorCommand(cmd) {
         const statusEl = document.getElementById('motor-cmd-status');
         const motorBadge = document.getElementById('motor-detected-badge');
@@ -978,17 +1021,20 @@
             statusEl.textContent = `Queuing command '${cmd}'...`;
         }
 
+        const onAngle = document.getElementById('motor-on-angle-input')?.value || 45;
+        const offAngle = document.getElementById('motor-off-angle-input')?.value || 135;
+
         // Immediate optimistic UI response
-        if (cmd === 'MOTOR_ON' || cmd === 'ON' || cmd === 'START') {
+        if (cmd.startsWith('MOTOR_ON') || cmd === 'ON' || cmd === 'START') {
             if (motorBadge) motorBadge.className = 'motor-badge running';
             if (motorDot) motorDot.className = 'status-dot';
             if (motorLabel) motorLabel.textContent = 'Motor ON (Syncing...)';
-            if (statusTextEl) statusTextEl.innerHTML = '<span style="color: #38bdf8;">MOTOR ON (45° Pulse)</span>';
-        } else if (cmd === 'MOTOR_OFF' || cmd === 'OFF' || cmd === 'STOP') {
+            if (statusTextEl) statusTextEl.innerHTML = `<span style="color: #38bdf8;">MOTOR ON (${onAngle}° Pulse)</span>`;
+        } else if (cmd.startsWith('MOTOR_OFF') || cmd === 'OFF' || cmd === 'STOP') {
             if (motorBadge) motorBadge.className = 'motor-badge';
             if (motorDot) motorDot.className = 'status-dot idle';
             if (motorLabel) motorLabel.textContent = 'Motor OFF (Syncing...)';
-            if (statusTextEl) statusTextEl.innerHTML = '<span style="color: #94a3b8;">MOTOR OFF (135° Pulse)</span>';
+            if (statusTextEl) statusTextEl.innerHTML = `<span style="color: #94a3b8;">MOTOR OFF (${offAngle}° Pulse)</span>`;
         }
 
         try {

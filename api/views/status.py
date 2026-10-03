@@ -216,10 +216,16 @@ def analyze_tank_timings(readings, now=None):
     result["latest_reference_text"] = format_duration(latest_step_reference)
     result["reference_source_label"] = reference_source_label
 
-    latest_reading = sorted_readings[-1]
-    curr_lvl = int(round(latest_reading.water_level)) if latest_reading.water_level is not None else 0
-    curr_lvl_time = latest_reading.timestamp
-    time_since_curr_lvl = (now - curr_lvl_time).total_seconds()
+    # Current level analysis (filter for readings with water_level != None)
+    water_readings = [r for r in sorted_readings if r.water_level is not None]
+    if water_readings:
+        latest_reading = water_readings[-1]
+        curr_lvl = int(round(latest_reading.water_level))
+        curr_lvl_time = latest_reading.timestamp
+        time_since_curr_lvl = (now - curr_lvl_time).total_seconds()
+    else:
+        curr_lvl = 0
+        time_since_curr_lvl = 0
 
     active_75_start = start_times.get("at_75")
     time_spent_at_75 = (now - active_75_start).total_seconds() if active_75_start else 0
@@ -308,12 +314,8 @@ def status(request):
             else:
                 last_seen_text = f"{seconds_ago // 86400}d ago"
 
-            if seconds_ago <= 15:
-                connection_status = "online"
-            elif seconds_ago <= 60:
-                connection_status = "idle"
-            else:
-                connection_status = "offline"
+            # Server listens for any time and lets board sync status/response on its own schedule
+            connection_status = "online"
 
             devices_data[dev_id] = {
                 "has_data": True,
@@ -382,20 +384,22 @@ def status(request):
     format_param = request.GET.get('format', '')
     accept_header = request.META.get('HTTP_ACCEPT', '')
 
+    # Fetch latest water tank reading (specifically for water sensor boards, not motor controllers)
     try:
-        overall_latest = TelemetryReading.objects.order_by('-timestamp').first()
+        tank_latest = TelemetryReading.objects.filter(water_level__isnull=False).order_by('-timestamp').first()
     except Exception:
-        overall_latest = None
+        tank_latest = None
 
-    active_dev_id = overall_latest.device_id if overall_latest else "esp8266_device_01"
+    active_tank_id = tank_latest.device_id if tank_latest else "esp8266_device_01"
+    tank_device_data = devices_data.get(active_tank_id) or devices_data.get("esp8266_device_01")
 
     if 'text/html' in accept_header and format_param != 'json':
         context = {
             "devices": devices_data,
-            "device_01": devices_data.get(active_dev_id) or devices_data.get("esp8266_device_01"),
+            "device_01": tank_device_data,
             "fill_analytics": fill_analytics,
             "motor_info": motor_info,
-            "has_data": overall_latest is not None,
+            "has_data": tank_latest is not None,
             "logs": latest_logs
         }
         return render(request, 'api/status.html', context)
@@ -406,9 +410,9 @@ def status(request):
         "fill_analytics": fill_analytics,
         "motor_info": motor_info,
         "logs": logs_data,
-        "device_id": overall_latest.device_id if overall_latest else "esp8266_device_01",
-        "water_level": overall_latest.water_level if overall_latest else None,
-        "temperature": overall_latest.temperature if overall_latest else None,
-        "humidity": overall_latest.humidity if overall_latest else None,
-        "timestamp": overall_latest.timestamp.strftime('%Y-%m-%d %H:%M:%S') if overall_latest else None,
+        "device_id": active_tank_id,
+        "water_level": tank_latest.water_level if tank_latest else None,
+        "temperature": tank_latest.temperature if tank_latest else None,
+        "humidity": tank_latest.humidity if tank_latest else None,
+        "timestamp": tank_latest.timestamp.strftime('%Y-%m-%d %H:%M:%S') if tank_latest else None,
     })

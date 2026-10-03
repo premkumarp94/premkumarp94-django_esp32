@@ -911,31 +911,32 @@
         </div>
     </section>
 
-    <!-- Deep Sleep Configuration Section -->
+    <!-- Reading Interval Configuration Section -->
     <section class="logs-card" style="border-color: rgba(56, 189, 248, 0.25);">
         <div class="logs-header">
             <h2 class="logs-title" style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 16 14"></polyline>
                 </svg>
-                ESP8266 Deep Sleep Controller
+                ESP8266 Reading Interval Sync (Default: 60s | Motor ON: 10s)
             </h2>
-            <span id="sleep-cmd-status" style="font-size: 0.78rem; font-weight: 600; color: #94a3b8;">Syncs via ESP32 Gateway</span>
+            <span id="sleep-cmd-status" style="font-size: 0.78rem; font-weight: 600; color: #94a3b8;">Syncs directly with esp8266tank.ino</span>
         </div>
         <div style="display: flex; flex-direction: column; gap: 14px; padding: 4px 0;">
             <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                Select or enter the deep sleep interval for ESP8266. Updated settings will be sent to the ESP32 gateway and passed to ESP8266 on its next wake-up cycle.
+                Select or enter the reading interval for ESP8266 when motor is OFF. (When motor turns ON, interval automatically switches to 10 seconds).
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button onclick="setSleepValue(5)" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">5s (Default)</button>
-                <button onclick="setSleepValue(10)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">10s</button>
-                <button onclick="setSleepValue(30)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">30s</button>
-                <button onclick="setSleepValue(60)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">60s (1m)</button>
-                <button onclick="setSleepValue(300)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">300s (5m)</button>
+                <button onclick="setIntervalValue(10)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">10s</button>
+                <button onclick="setIntervalValue(30)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">30s</button>
+                <button onclick="setIntervalValue(60)" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">60s (Default)</button>
+                <button onclick="setIntervalValue(300)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">300s (5m)</button>
+                <button onclick="setIntervalValue(600)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer;">600s (10m)</button>
             </div>
             <div style="display: flex; gap: 10px; align-items: center; margin-top: 4px;">
-                <input type="number" id="custom-sleep-input" min="1" max="86400" value="5" placeholder="Sleep seconds" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; padding: 10px 14px; font-size: 0.95rem; width: 140px;">
-                <button onclick="submitCustomSleep()" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);">Update Deep Sleep</button>
+                <input type="number" id="custom-interval-input" min="1" max="86400" value="60" placeholder="Interval seconds" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; padding: 10px 14px; font-size: 0.95rem; width: 150px;">
+                <button onclick="submitCustomInterval()" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);">Sync Interval</button>
             </div>
         </div>
     </section>
@@ -997,20 +998,20 @@
         }
     }
 
-    async function sendSleepCommand(seconds) {
-        const statusEl = document.getElementById('sleep-cmd-status');
+    async function sendIntervalCommand(seconds) {
+        const statusEl = document.getElementById('interval-cmd-status');
         if (statusEl) statusEl.textContent = 'Sending command...';
         try {
             const resp = await fetch('/api/command/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ device_id: 'esp32_device_01', command: `SLEEP:${seconds}` })
+                body: JSON.stringify({ device_id: 'esp8266_device_01', command: `INTERVAL:${seconds}` })
             });
             const res = await resp.json();
             if (res.status === 'success') {
                 if (statusEl) {
                     statusEl.style.color = '#34d399';
-                    statusEl.textContent = `Queued ${seconds}s sleep for next wake-up!`;
+                    statusEl.textContent = `Synced reading interval (${seconds}s) with ESP8266!`;
                 }
             } else {
                 if (statusEl) {
@@ -1026,15 +1027,15 @@
         }
     }
 
-    function setSleepValue(val) {
-        document.getElementById('custom-sleep-input').value = val;
-        sendSleepCommand(val);
+    function setIntervalValue(val) {
+        document.getElementById('custom-interval-input').value = val;
+        sendIntervalCommand(val);
     }
 
-    function submitCustomSleep() {
-        const val = parseInt(document.getElementById('custom-sleep-input').value, 10);
+    function submitCustomInterval() {
+        const val = parseInt(document.getElementById('custom-interval-input').value, 10);
         if (val >= 1 && val <= 86400) {
-            sendSleepCommand(val);
+            sendIntervalCommand(val);
         }
     }
 
@@ -1077,25 +1078,14 @@
             lastSeenVal.textContent = formatRelativeTime(seconds);
         }
 
-        let state = 'offline';
-        let color = '#ef4444';
-        let label = 'OFFLINE';
-
-        if (seconds !== null && !isNaN(seconds)) {
-            if (seconds <= 15) {
-                state = 'online';
-                color = '#10b981';
-                label = 'ONLINE';
-            } else if (seconds <= 60) {
-                state = 'idle';
-                color = '#f59e0b';
-                label = 'IDLE';
-            }
-        }
+        // Web server listens for any time and lets board sync status/response on its own schedule
+        const isOnline = (seconds !== null && !isNaN(seconds));
+        const color = isOnline ? '#10b981' : '#ef4444';
+        const label = isOnline ? 'ONLINE' : 'OFFLINE';
 
         [dotHeader, dotCard, dotBox].forEach(dot => {
             if (dot) {
-                dot.className = 'status-dot' + (state === 'idle' ? ' idle' : state === 'offline' ? ' offline' : '');
+                dot.className = 'status-dot' + (isOnline ? '' : ' offline');
             }
         });
 
@@ -1245,11 +1235,14 @@
                 const data = await response.json();
 
                 if (data.status === 'success' && data.devices) {
-                    const activeId = data.device_id || 'esp32_device_01';
-                    const dev1 = data.devices[activeId] || data.devices['esp32_device_01'] || data.devices['esp8266_device_01'] || Object.values(data.devices)[0];
+                    const activeId = data.device_id || 'esp8266_device_01';
+                    const dev1 = data.devices['esp8266_device_01'] ||
+                                 Object.values(data.devices).find(d => d.water_level !== null && d.water_level !== undefined) ||
+                                 data.devices[activeId] ||
+                                 Object.values(data.devices)[0];
                     if (dev1) {
                         const badgeEl = document.getElementById('device-id-badge');
-                        if (badgeEl) badgeEl.textContent = dev1.device_id || activeId;
+                        if (badgeEl) badgeEl.textContent = dev1.device_id || 'esp8266_device_01';
 
                         updateProbeUI(dev1.water_level, dev1.probe_25, dev1.probe_50, dev1.probe_75, dev1.probe_100);
                         const timeEl = document.getElementById('time-esp8266_device_01') || document.getElementById('last-sync-time');

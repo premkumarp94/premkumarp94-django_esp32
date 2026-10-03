@@ -1,170 +1,76 @@
-#include <ESP8266WiFi.h>
-#include <espnow.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 
 //==================================================
-// WIFI CREDENTIALS (ESP8266 Home Gateway)
+// WIFI
 //==================================================
-const char *ssid     = "TIC_5G-PREM";
+
+const char *ssid = "TIC_5G-PREM";
 const char *password = "prem@123";
 
-// Deep Sleep interval to relay to ESP32 Tank Sensor (Default 5s)
-uint32_t currentSleepSeconds = 5;
+//==================================================
+// DEVICE
+//==================================================
 
-// Server list (Local LAN Django Server first priority, then Cloud fallback)
+const char *DEVICE_ID = "esp8266_device_01";
+
+String pendingDeviceMsg = "esp8266 booted normally";
+
+int iterationCount = 0;
+
+// Synced reading interval setting while motor is OFF (Default: 60 seconds)
+uint32_t readingIntervalSeconds = 60;
+
+//==================================================
+// WATER PROBES & WIRE COLORS
+//==================================================
+// RED    = COM (Reference probe)
+// BLACK  = D1  (100% Probe)
+// GREEN  = D5  (75% Probe)
+// YELLOW = D2  (50% Probe)
+// BLUE   = D6  (25% Probe)
+
+const int PROBE_25  = D6; // Blue
+const int PROBE_50  = D2; // Yellow
+const int PROBE_75  = D5; // Green
+const int PROBE_100 = D1; // Black
+
+// Using ESP8266 internal pull-up resistors.
+// Probe in air   = HIGH
+// Probe in water = LOW
+const bool USE_INTERNAL_PULLUP = true;
+
+//==================================================
+// SERVERS
+//==================================================
+
 const char *serverList[] = {
-    "https://premkumarp94.pythonanywhere.com/api/telemetry/",
-    "http://192.168.1.7:8000/api/telemetry/", // Local PC IP on Home WiFi
-    "http://192.168.1.2:8000/api/telemetry/",
-    "http://192.168.1.3:8000/api/telemetry/",
-    "http://192.168.1.4:8000/api/telemetry/",
-    "http://192.168.1.5:8000/api/telemetry/",
-    "http://192.168.1.6:8000/api/telemetry/"
+    "https://premkumarp94.pythonanywhere.com/api/telemetry/"
 };
+
 const int SERVER_COUNT = sizeof(serverList) / sizeof(serverList[0]);
 
-// Currently locked active server index (Persisted across requests, defaults to 0)
-int activeServerIndex = 0;
+int activeServer = -1;
 
 //==================================================
-// TELEMETRY & CONFIG DATA STRUCTURES (Packed)
+// WIFI CONNECTION
 //==================================================
-typedef struct __attribute__((packed)) struct_telemetry {
-  char device_id[32];
-  int water_level;
-  bool probe_25;
-  bool probe_50;
-  bool probe_75;
-  bool probe_100;
-  uint32_t message_count;
-} TelemetryData;
 
-typedef struct __attribute__((packed)) struct_sleep_config {
-  uint32_t sleep_seconds;
-} SleepConfigData;
-
-TelemetryData latestTelemetry;
-uint8_t senderMac[6];
-volatile bool newTelemetryAvailable = false;
-uint32_t processedCount = 0;
-bool motorRunning = false;
-
-//==================================================
-// LED LEVEL INDICATORS & BLINK LOGIC
-// D1 = GPIO 5  -> 25% LED  (LED 1 - Blinks once/sec when 0%)
-// D2 = GPIO 4  -> 50% LED  (LED 2)
-// D5 = GPIO 14 -> 75% LED  (LED 3)
-// D6 = GPIO 12 -> 100% LED (LED 4)
-//==================================================
-const int LED_25  = D1;
-const int LED_50  = D2;
-const int LED_75  = D5;
-const int LED_100 = D6;
-
-unsigned long lastBlinkTime = 0;
-bool blinkState = false;
-
-void updateLEDDisplay() {
-  bool led1 = latestTelemetry.probe_25  || (latestTelemetry.water_level >= 25);
-  bool led2 = latestTelemetry.probe_50  || (latestTelemetry.water_level >= 50);
-  bool led3 = latestTelemetry.probe_75  || (latestTelemetry.water_level >= 75);
-  bool led4 = latestTelemetry.probe_100 || (latestTelemetry.water_level >= 100);
-
-  // Set LEDs 2, 3, 4 solid ON/OFF according to percentage
-  digitalWrite(LED_50,  led2 ? HIGH : LOW);
-  digitalWrite(LED_75,  led3 ? HIGH : LOW);
-  digitalWrite(LED_100, led4 ? HIGH : LOW);
-
-  if (led1) {
-    // Water level >= 25%: LED 1 is SOLID ON
-    digitalWrite(LED_25, HIGH);
-  } else {
-    // Water level is 0%: Blink LED 1 (D1) once per second (500ms ON / 500ms OFF)
-    unsigned long now = millis();
-    if (now - lastBlinkTime >= 500) {
-      lastBlinkTime = now;
-      blinkState = !blinkState;
-      digitalWrite(LED_25, blinkState ? HIGH : LOW);
-    }
-  }
-}
-
-//==================================================
-// PARSE DJANGO RESPONSE COMMANDS
-//==================================================
-void processServerCommands(const String &response) {
-  StaticJsonDocument<512> respDoc;
-  DeserializationError err = deserializeJson(respDoc, response);
-  if (!err) {
-    if (respDoc.containsKey("motor_running")) {
-      motorRunning = respDoc["motor_running"].as<bool>();
-    }
-    if (respDoc.containsKey("sleep_seconds")) {
-      currentSleepSeconds = respDoc["sleep_seconds"].as<uint32_t>();
-      Serial.printf("[DJANGO CMD] New Deep Sleep duration from server: %u sec\n", currentSleepSeconds);
-    }
-    if (respDoc.containsKey("command")) {
-      String cmd = respDoc["command"].as<String>();
-      if (cmd.startsWith("SLEEP:") || cmd.startsWith("DEEPSLEEP:")) {
-        int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
-        if (val >= 1 && val <= 86400) {
-          currentSleepSeconds = (uint32_t)val;
-          Serial.printf("[DJANGO CMD] Received command update: Deep Sleep = %u sec\n", currentSleepSeconds);
-        }
-      }
-    }
-  }
-}
-
-//==================================================
-// ESP-NOW RECEIVE CALLBACK (ESP8266 Gateway)
-//==================================================
-void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
-  if (len == sizeof(TelemetryData)) {
-    memcpy(&latestTelemetry, incomingData, sizeof(TelemetryData));
-    memcpy(senderMac, mac, 6);
-    newTelemetryAvailable = true;
-
-    Serial.printf("\n[ESP-NOW RX] From ESP32 MAC: %02X:%02X:%02X:%02X:%02X:%02X | Level: %d%% | Msg #%u\n",
-                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
-                  latestTelemetry.water_level, latestTelemetry.message_count);
-
-    // Send immediate ACK back to ESP32 with current Deep Sleep setting
-    SleepConfigData reply;
-    reply.sleep_seconds = currentSleepSeconds;
-
-    uint8_t currentChannel = WiFi.channel();
-    if (currentChannel == 0) currentChannel = 9;
-
-    if (!esp_now_is_peer_exist(mac)) {
-      esp_now_add_peer(mac, ESP_NOW_ROLE_COMBO, currentChannel, NULL, 0);
-    }
-    int result = esp_now_send(mac, (uint8_t *)&reply, sizeof(reply));
-    if (result == 0) {
-      Serial.printf("[ESP-NOW TX ACK] Sent Deep Sleep duration (%u sec) to ESP32\n", currentSleepSeconds);
-    } else {
-      Serial.printf("[ESP-NOW TX ACK ERROR] Code: %d\n", result);
-    }
-  }
-}
-
-//==================================================
-// CONNECT TO HOME WIFI
-//==================================================
 bool connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return true;
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
 
   Serial.println();
-  Serial.print("Connecting ESP8266 Gateway to Home WiFi (SSID: ");
-  Serial.print(ssid);
-  Serial.println(")...");
+  Serial.print("Connecting WiFi");
 
-  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
   int attempts = 0;
+
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
     delay(500);
     Serial.print(".");
@@ -172,219 +78,421 @@ bool connectWiFi() {
   }
 
   Serial.println();
+
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi Connected! ESP8266 Gateway Local IP Address: ");
+    Serial.print("Connected. IP: ");
     Serial.println(WiFi.localIP());
-    Serial.printf("Active WiFi Channel: %d\n", WiFi.channel());
+
     return true;
   }
 
-  Serial.println("WiFi connection failed! Unable to connect to Home WiFi AP.");
+  Serial.println("WiFi connection failed.");
+
   return false;
 }
 
 //==================================================
-// HTTP POST TO DJANGO SERVER
+// WATER LEVEL
 //==================================================
-bool postJsonToCloud(const char *url, const String &body, String &responseOut) {
-  HTTPClient http;
-  int code = -1;
 
-  Serial.print("[HTTP POST] Connecting to Target Server IP/URL: ");
+// Individual probe detection states
+bool probe25Detected = false;
+bool probe50Detected = false;
+bool probe75Detected = false;
+bool probe100Detected = false;
+
+int lastWaterLevel = -1;
+bool motorRunning = false;
+
+int readWaterLevel() {
+  // Dynamic discharge delay based on water level:
+  // 0%, 25%, 50% -> 20ms delay | 75%, 100% -> 50ms delay | default -> 30ms delay
+  int dischargeDelay = 30;
+  if (lastWaterLevel == 0 || lastWaterLevel == 25 || lastWaterLevel == 50) {
+    dischargeDelay = 20;
+  } else if (lastWaterLevel == 75 || lastWaterLevel == 100) {
+    dischargeDelay = 50;
+  }
+
+  // 1. Pre-charge probe pins to HIGH (3.3V) briefly
+  pinMode(PROBE_25, OUTPUT);
+  digitalWrite(PROBE_25, HIGH);
+  pinMode(PROBE_50, OUTPUT);
+  digitalWrite(PROBE_50, HIGH);
+  pinMode(PROBE_75, OUTPUT);
+  digitalWrite(PROBE_75, HIGH);
+  pinMode(PROBE_100, OUTPUT);
+  digitalWrite(PROBE_100, HIGH);
+  delay(5);
+
+  // 2. Switch pins to High-Impedance INPUT mode (no pull-up resistor loading)
+  pinMode(PROBE_25, INPUT);
+  pinMode(PROBE_50, INPUT);
+  pinMode(PROBE_75, INPUT);
+  pinMode(PROBE_100, INPUT);
+
+  // Allow high-resistance water path to discharge charge to GND reference
+  delay(dischargeDelay);
+
+  // 3. Read probe states (In water: charge bleeds to GND -> pin reads LOW. In air: stays HIGH)
+  probe25Detected = (digitalRead(PROBE_25) == LOW);
+  probe50Detected = (digitalRead(PROBE_50) == LOW);
+  probe75Detected = (digitalRead(PROBE_75) == LOW);
+  probe100Detected = (digitalRead(PROBE_100) == LOW);
+
+  Serial.println();
+  Serial.println("===== WATER PROBE TEST =====");
+  Serial.print("Discharge Delay Used: ");
+  Serial.print(dischargeDelay);
+  Serial.println(" ms");
+
+  Serial.print("25%  (D6 / BLUE)   = ");
+  Serial.println(probe25Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  Serial.print("50%  (D2 / YELLOW) = ");
+  Serial.println(probe50Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  Serial.print("75%  (D5 / GREEN)  = ");
+  Serial.println(probe75Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  Serial.print("100% (D1 / BLACK)  = ");
+  Serial.println(probe100Detected ? "DETECTED (WATER)" : "OPEN (AIR)");
+
+  // Highest detected probe determines the level.
+  int currentLevel = 0;
+  if (probe100Detected) {
+    currentLevel = 100;
+  } else if (probe75Detected) {
+    currentLevel = 75;
+  } else if (probe50Detected) {
+    currentLevel = 50;
+  } else if (probe25Detected) {
+    currentLevel = 25;
+  } else {
+    currentLevel = 0;
+  }
+
+  lastWaterLevel = currentLevel;
+  return currentLevel;
+}
+
+//==================================================
+// HTTP POST JSON
+//==================================================
+
+bool postJson(const char *url, const String &body, String &responseOut) {
+  responseOut = "";
+
+  HTTPClient http;
+
+  int httpCode = -1;
+
+  Serial.print("POST: ");
   Serial.println(url);
 
   if (strncmp(url, "https://", 8) == 0) {
     WiFiClientSecure client;
-    client.setInsecure();
-    client.setBufferSizes(1024, 1024); // Optimize SSL handshake RAM for ESP8266
 
-    if (http.begin(client, url)) {
-      http.addHeader("Content-Type", "application/json");
-      http.setTimeout(7000);
-      code = http.POST(body);
-      if (code > 0) {
-        responseOut = http.getString();
-      } else {
-        Serial.printf("[HTTP ERROR] POST failed to %s | Error: %s\n", url, http.errorToString(code).c_str());
-      }
-      http.end();
-    } else {
-      Serial.printf("[HTTP ERROR] Unable to connect to HTTPS endpoint: %s\n", url);
+    // Testing only.
+    // This skips certificate verification.
+    client.setInsecure();
+
+    if (!http.begin(client, url)) {
+      Serial.println("HTTPS begin failed.");
+      return false;
     }
+
+    http.addHeader("Content-Type", "application/json");
+
+    http.setTimeout(5000);
+
+    httpCode = http.POST(body);
+
+    if (httpCode > 0) {
+      responseOut = http.getString();
+    }
+
+    http.end();
   } else {
     WiFiClient client;
-    if (http.begin(client, url)) {
-      http.addHeader("Content-Type", "application/json");
-      http.setTimeout(5000);
-      code = http.POST(body);
-      if (code > 0) {
-        responseOut = http.getString();
-      } else {
-        Serial.printf("[HTTP ERROR] POST failed to %s | Error: %s\n", url, http.errorToString(code).c_str());
-      }
-      http.end();
-    } else {
-      Serial.printf("[HTTP ERROR] Unable to connect to HTTP endpoint: %s\n", url);
+
+    if (!http.begin(client, url)) {
+      Serial.println("HTTP begin failed.");
+      return false;
     }
+
+    http.addHeader("Content-Type", "application/json");
+
+    http.setTimeout(5000);
+
+    httpCode = http.POST(body);
+
+    if (httpCode > 0) {
+      responseOut = http.getString();
+    }
+
+    http.end();
   }
 
-  Serial.printf("[HTTP RESULT] Status Code: %d for Target IP/URL: %s\n", code, url);
-  return (code >= 200 && code < 300);
+  Serial.print("HTTP code: ");
+  Serial.println(httpCode);
+
+  if (httpCode >= 200 && httpCode < 300) {
+    return true;
+  }
+
+  if (httpCode > 0) {
+    Serial.println("Server response:");
+    Serial.println(responseOut);
+  }
+
+  return false;
 }
 
 //==================================================
-// FORWARD TELEMETRY TO DJANGO CLOUD
+// SERVER DISCOVERY
 //==================================================
-bool forwardTelemetryToCloud(const TelemetryData &data) {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
-    if (WiFi.status() != WL_CONNECTED) return false;
+
+bool discoverServer() {
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("Searching for telemetry server");
+  Serial.println("================================");
+
+  for (int i = 0; i < SERVER_COUNT; i++) {
+    StaticJsonDocument<256> doc;
+
+    doc["id"] = DEVICE_ID;
+    doc["message"] = "ping";
+
+    String body;
+
+    serializeJson(doc, body);
+
+    String response;
+
+    Serial.print("Trying ");
+    Serial.println(serverList[i]);
+
+    if (postJson(serverList[i], body, response)) {
+      activeServer = i;
+
+      Serial.println("SERVER CONNECTED!");
+
+      Serial.print("Active server: ");
+      Serial.println(serverList[i]);
+
+      Serial.print("Discovery response: ");
+      Serial.println(response);
+
+      return true;
+    }
+
+    Serial.println("No response.");
   }
 
+  activeServer = -1;
+
+  Serial.println("No server available.");
+
+  return false;
+}
+
+//==================================================
+// BUILD TELEMETRY JSON
+//==================================================
+
+String buildTelemetry(const String &ack, const String &message) {
   StaticJsonDocument<512> doc;
-  doc["id"] = data.device_id[0] != '\0' ? data.device_id : "esp32_device_01";
+
+  doc["id"] = DEVICE_ID;
 
   JsonObject sensor = doc.createNestedObject("sensor values");
-  sensor["water_level"] = data.water_level;
-  sensor["probe_25"]    = data.probe_25;
-  sensor["probe_50"]    = data.probe_50;
-  sensor["probe_75"]    = data.probe_75;
-  sensor["probe_100"]   = data.probe_100;
 
-  doc["ack"] = "espnow_ok";
-  doc["message"] = "esp32 telemetry via esp8266 gateway";
+  int waterLevel = readWaterLevel();
+
+  sensor["water_level"] = waterLevel;
+  sensor["probe_25"] = probe25Detected;
+  sensor["probe_50"] = probe50Detected;
+  sensor["probe_75"] = probe75Detected;
+  sensor["probe_100"] = probe100Detected;
+
+  doc["ack"] = ack;
+
+  doc["message"] = message;
 
   String body;
+
   serializeJson(doc, body);
 
-  Serial.println("\n--- Forwarding Telemetry to Django Cloud ---");
-  Serial.print("Gateway Local IP: ");
-  Serial.println(WiFi.localIP());
+  return body;
+}
+
+//==================================================
+// SEND NORMAL TELEMETRY
+//==================================================
+
+bool sendTelemetry() {
+  if (activeServer == -1) {
+    if (!discoverServer()) {
+      return false;
+    }
+  }
+
+  String ack = "dummy_ack";
+
+  String message = pendingDeviceMsg;
+
+  String body = buildTelemetry(ack, message);
+
+  Serial.println();
+  Serial.println("Sending telemetry:");
+
   Serial.println(body);
 
   String response;
 
-  // STEP 1: Try current active server IP first
-  Serial.printf("[ACTIVE TELEMETRY TARGET %d/%d] Sending to: %s\n", activeServerIndex + 1, SERVER_COUNT, serverList[activeServerIndex]);
-  if (postJsonToCloud(serverList[activeServerIndex], body, response)) {
-    Serial.printf("[HTTP SUCCESS] Uploaded telemetry via Active Server: %s\n", serverList[activeServerIndex]);
-    Serial.println("Server Response:");
-    Serial.println(response);
+  bool success = postJson(serverList[activeServer], body, response);
 
-    processServerCommands(response);
-    return true;
+  if (!success) {
+    Serial.println("Active server failed.");
+
+    activeServer = -1;
+
+    return false;
   }
 
-  // STEP 2: Active server failed! Scan serverList from top to bottom
-  Serial.printf("\n[ACTIVE SERVER FAILED] Could not reach %s!\n", serverList[activeServerIndex]);
-  Serial.println("[FALLBACK SEARCH] Probing server list from top to bottom for a working server...");
+  // Clear message only after successful transmission
+  pendingDeviceMsg = "";
 
-  for (int i = 0; i < SERVER_COUNT; i++) {
-    if (i == activeServerIndex) continue; // Already attempted above
+  Serial.println();
+  Serial.println("Server response:");
 
-    Serial.printf("[FALLBACK TRY %d/%d] Trying: %s ...\n", i + 1, SERVER_COUNT, serverList[i]);
-    if (postJsonToCloud(serverList[i], body, response)) {
-      activeServerIndex = i; // Save new active server!
-      Serial.printf("=> ACTIVE SERVER UPDATED! Locked onto server [%d/%d]: %s\n", activeServerIndex + 1, SERVER_COUNT, serverList[activeServerIndex]);
-      Serial.println("Server Response:");
-      Serial.println(response);
+  Serial.println(response);
 
-      processServerCommands(response);
-      return true;
+  // Parse server response to sync motor_running state and reading interval
+  StaticJsonDocument<512> respDoc;
+  DeserializationError err = deserializeJson(respDoc, response);
+  if (!err) {
+    if (respDoc.containsKey("motor_running")) {
+      motorRunning = respDoc["motor_running"].as<bool>();
+    } else if (respDoc.containsKey("is_filling")) {
+      motorRunning = respDoc["is_filling"].as<bool>();
+    }
+
+    // Sync interval_seconds / sleep_seconds from server response if provided
+    if (respDoc.containsKey("interval_seconds")) {
+      uint32_t sSec = respDoc["interval_seconds"].as<uint32_t>();
+      if (sSec >= 1 && sSec <= 86400) {
+        readingIntervalSeconds = sSec;
+        Serial.printf("[SERVER SYNC] Synced reading interval while motor OFF: %u sec\n", readingIntervalSeconds);
+      }
+    } else if (respDoc.containsKey("sleep_seconds")) {
+      uint32_t sSec = respDoc["sleep_seconds"].as<uint32_t>();
+      if (sSec >= 1 && sSec <= 86400) {
+        readingIntervalSeconds = sSec;
+        Serial.printf("[SERVER SYNC] Synced reading interval while motor OFF: %u sec\n", readingIntervalSeconds);
+      }
+    }
+
+    // Sync interval from server commands (e.g. INTERVAL:30 or SLEEP:60)
+    if (respDoc.containsKey("command")) {
+      String cmd = respDoc["command"].as<String>();
+      cmd.trim();
+      cmd.toUpperCase();
+      if (cmd.startsWith("INTERVAL:") || cmd.startsWith("SLEEP:") || cmd.startsWith("DEEPSLEEP:")) {
+        int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+        if (val >= 1 && val <= 86400) {
+          readingIntervalSeconds = (uint32_t)val;
+          Serial.printf("[COMMAND SYNC] Updated reading interval to %u sec\n", readingIntervalSeconds);
+        }
+      }
     }
   }
 
-  Serial.println("[ERROR] All servers in candidate list failed to respond!");
-  return false;
+  return true;
 }
 
 //==================================================
 // SETUP
 //==================================================
+
 void setup() {
   Serial.begin(115200);
+
   delay(1000);
 
-  // Initialize LED Pins
-  pinMode(LED_25, OUTPUT);
-  pinMode(LED_50, OUTPUT);
-  pinMode(LED_75, OUTPUT);
-  pinMode(LED_100, OUTPUT);
-
-  // LED startup test sweep
-  digitalWrite(LED_25, HIGH); delay(150); digitalWrite(LED_25, LOW);
-  digitalWrite(LED_50, HIGH); delay(150); digitalWrite(LED_50, LOW);
-  digitalWrite(LED_75, HIGH); delay(150); digitalWrite(LED_75, LOW);
-  digitalWrite(LED_100, HIGH); delay(150); digitalWrite(LED_100, LOW);
-
   Serial.println();
-  Serial.println("==================================================");
-  Serial.println("ESP8266 HOME WIFI GATEWAY & ESP-NOW RECEIVER");
-  Serial.println("==================================================");
+  Serial.println("====================================");
+  Serial.println("ESP8266 WATER LEVEL DEVICE STARTING");
+  Serial.println("====================================");
 
-  // Connect to Home WiFi
-  connectWiFi();
+  Serial.print("Device ID: ");
+  Serial.println(DEVICE_ID);
 
-  Serial.print("ESP8266 MAC Address: ");
-  Serial.println(WiFi.macAddress());
+  //================================================
+  // WATER PROBES (Default: OFF / High-Impedance)
+  //================================================
 
-  // Print configured candidate server list at startup
-  Serial.println("\n--------------------------------------------------");
-  Serial.println("CONFIGURED DJANGO TELEMETRY SERVERS LIST:");
-  for (int i = 0; i < SERVER_COUNT; i++) {
-    Serial.printf("  Candidate [%d/%d]: %s\n", i + 1, SERVER_COUNT, serverList[i]);
+  pinMode(PROBE_25, INPUT);
+  pinMode(PROBE_50, INPUT);
+  pinMode(PROBE_75, INPUT);
+  pinMode(PROBE_100, INPUT);
+
+  //================================================
+  // WIFI
+  //================================================
+
+  if (connectWiFi()) {
+    discoverServer();
   }
-  Serial.println("--------------------------------------------------");
-
-  // Try server list from top to bottom at startup, lock activeServerIndex to the first working server
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n[STARTUP SERVER CHECK] Probing candidate servers from top to bottom...");
-    String probeBody = "{\"id\":\"esp8266_gateway_boot\",\"message\":\"ping\"}";
-    String probeResp;
-
-    for (int i = 0; i < SERVER_COUNT; i++) {
-      Serial.printf("\n[TRY %d/%d] Connecting to: %s ...\n", i + 1, SERVER_COUNT, serverList[i]);
-      if (postJsonToCloud(serverList[i], probeBody, probeResp)) {
-        activeServerIndex = i;
-        Serial.printf("=> CONNECTED SUCCESS! Locked active telemetry server [%d/%d]: %s\n", activeServerIndex + 1, SERVER_COUNT, serverList[activeServerIndex]);
-        Serial.println("=> Stopping startup search.\n");
-        break; // Lock active server and stop search!
-      } else {
-        Serial.printf("=> FAILED to connect to %s. Trying next server in list...\n", serverList[i]);
-      }
-    }
-  }
-
-  // Initialize ESP-NOW
-  if (esp_now_init() != 0) {
-    Serial.println("Error initializing ESP-NOW!");
-    return;
-  }
-
-  esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
-  esp_now_register_recv_cb(OnDataRecv);
-
-  Serial.println("ESP8266 Gateway Ready. Listening for ESP32 Telemetry...");
 }
 
 //==================================================
-// MAIN LOOP
+// LOOP
 //==================================================
+
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
+  // Make sure WiFi is available
+  if (!connectWiFi()) {
+    delay(2000);
+
+    return;
   }
 
-  // Continuously update LED display (blinks LED 1 once per second when water level is 0%)
-  updateLEDDisplay();
+  //================================================
+  // NORMAL TELEMETRY
+  //================================================
 
-  if (newTelemetryAvailable) {
-    newTelemetryAvailable = false;
-    processedCount++;
+  sendTelemetry();
 
-    Serial.printf("\n[Forwarding ESP32 Msg #%u to Cloud (Gateway Upload #%u)]\n", latestTelemetry.message_count, processedCount);
-    forwardTelemetryToCloud(latestTelemetry);
+  //================================================
+  // ITERATION MESSAGE
+  //================================================
+
+  if (iterationCount == 0) {
+    pendingDeviceMsg = "came to first iteration";
   }
 
-  delay(20);
+  iterationCount++;
+
+  // Dynamic reading interval:
+  // If motor is running -> check/telemetry interval is 10 seconds.
+  // While motor is off   -> use readingIntervalSeconds (default 60s or browser/server synced setting).
+  uint32_t activeIntervalSeconds = motorRunning ? 10 : readingIntervalSeconds;
+  unsigned long checkIntervalMs = (unsigned long)activeIntervalSeconds * 1000;
+
+  Serial.println();
+  Serial.print("Iteration: ");
+  Serial.println(iterationCount);
+  Serial.print("Motor Status: ");
+  if (motorRunning) {
+    Serial.println("RUNNING (Motor is ON -> Reading interval set to 10s)");
+  } else {
+    Serial.printf("OFF / IDLE (Motor is OFF -> Synced reading interval: %u sec)\n", readingIntervalSeconds);
+  }
+
+  Serial.println("------------------------------------");
+
+  delay(checkIntervalMs);
 }

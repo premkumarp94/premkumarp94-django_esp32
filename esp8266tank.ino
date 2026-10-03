@@ -15,13 +15,13 @@ uint32_t currentSleepSeconds = 5;
 
 // Server list (Local LAN Django Server first priority, then Cloud fallback)
 const char *serverList[] = {
+    "https://premkumarp94.pythonanywhere.com/api/telemetry/",
     "http://192.168.1.7:8000/api/telemetry/", // Local PC IP on Home WiFi
     "http://192.168.1.2:8000/api/telemetry/",
     "http://192.168.1.3:8000/api/telemetry/",
     "http://192.168.1.4:8000/api/telemetry/",
     "http://192.168.1.5:8000/api/telemetry/",
-    "http://192.168.1.6:8000/api/telemetry/",
-    "https://premkumarp94.pythonanywhere.com/api/telemetry/"
+    "http://192.168.1.6:8000/api/telemetry/"
 };
 const int SERVER_COUNT = sizeof(serverList) / sizeof(serverList[0]);
 
@@ -50,6 +50,46 @@ uint8_t senderMac[6];
 volatile bool newTelemetryAvailable = false;
 uint32_t processedCount = 0;
 bool motorRunning = false;
+
+//==================================================
+// LED LEVEL INDICATORS & BLINK LOGIC
+// D1 = GPIO 5  -> 25% LED  (LED 1 - Blinks once/sec when 0%)
+// D2 = GPIO 4  -> 50% LED  (LED 2)
+// D5 = GPIO 14 -> 75% LED  (LED 3)
+// D6 = GPIO 12 -> 100% LED (LED 4)
+//==================================================
+const int LED_25  = D1;
+const int LED_50  = D2;
+const int LED_75  = D5;
+const int LED_100 = D6;
+
+unsigned long lastBlinkTime = 0;
+bool blinkState = false;
+
+void updateLEDDisplay() {
+  bool led1 = latestTelemetry.probe_25  || (latestTelemetry.water_level >= 25);
+  bool led2 = latestTelemetry.probe_50  || (latestTelemetry.water_level >= 50);
+  bool led3 = latestTelemetry.probe_75  || (latestTelemetry.water_level >= 75);
+  bool led4 = latestTelemetry.probe_100 || (latestTelemetry.water_level >= 100);
+
+  // Set LEDs 2, 3, 4 solid ON/OFF according to percentage
+  digitalWrite(LED_50,  led2 ? HIGH : LOW);
+  digitalWrite(LED_75,  led3 ? HIGH : LOW);
+  digitalWrite(LED_100, led4 ? HIGH : LOW);
+
+  if (led1) {
+    // Water level >= 25%: LED 1 is SOLID ON
+    digitalWrite(LED_25, HIGH);
+  } else {
+    // Water level is 0%: Blink LED 1 (D1) once per second (500ms ON / 500ms OFF)
+    unsigned long now = millis();
+    if (now - lastBlinkTime >= 500) {
+      lastBlinkTime = now;
+      blinkState = !blinkState;
+      digitalWrite(LED_25, blinkState ? HIGH : LOW);
+    }
+  }
+}
 
 //==================================================
 // PARSE DJANGO RESPONSE COMMANDS
@@ -265,6 +305,18 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  // Initialize LED Pins
+  pinMode(LED_25, OUTPUT);
+  pinMode(LED_50, OUTPUT);
+  pinMode(LED_75, OUTPUT);
+  pinMode(LED_100, OUTPUT);
+
+  // LED startup test sweep
+  digitalWrite(LED_25, HIGH); delay(150); digitalWrite(LED_25, LOW);
+  digitalWrite(LED_50, HIGH); delay(150); digitalWrite(LED_50, LOW);
+  digitalWrite(LED_75, HIGH); delay(150); digitalWrite(LED_75, LOW);
+  digitalWrite(LED_100, HIGH); delay(150); digitalWrite(LED_100, LOW);
+
   Serial.println();
   Serial.println("==================================================");
   Serial.println("ESP8266 HOME WIFI GATEWAY & ESP-NOW RECEIVER");
@@ -323,6 +375,9 @@ void loop() {
     connectWiFi();
   }
 
+  // Continuously update LED display (blinks LED 1 once per second when water level is 0%)
+  updateLEDDisplay();
+
   if (newTelemetryAvailable) {
     newTelemetryAvailable = false;
     processedCount++;
@@ -331,5 +386,5 @@ void loop() {
     forwardTelemetryToCloud(latestTelemetry);
   }
 
-  delay(100);
+  delay(20);
 }

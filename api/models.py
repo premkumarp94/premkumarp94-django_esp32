@@ -9,6 +9,9 @@ class TelemetryReading(models.Model):
     probe_50 = models.BooleanField(null=True, blank=True)
     probe_75 = models.BooleanField(null=True, blank=True)
     probe_100 = models.BooleanField(null=True, blank=True)
+    motor_status = models.CharField(max_length=20, null=True, blank=True)
+    motor_running = models.BooleanField(null=True, blank=True)
+    servo_angle = models.IntegerField(null=True, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

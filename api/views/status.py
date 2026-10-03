@@ -19,14 +19,51 @@ def format_duration(seconds):
     return f"{h}h {m_rem:02d}m"
 
 
+def get_esp32motor_status():
+    reading = TelemetryReading.objects.filter(
+        device_id__icontains="motor"
+    ).order_by('-timestamp').first()
+    
+    if not reading:
+        reading = TelemetryReading.objects.filter(
+            motor_status__isnull=False
+        ).order_by('-timestamp').first()
+        
+    if reading:
+        is_on = reading.motor_running if reading.motor_running is not None else (str(reading.motor_status).upper() in ["ON", "RUNNING", "TRUE"])
+        status_text = reading.motor_status or ("Motor ON (45°)" if is_on else "Motor OFF (135°)")
+        angle = reading.servo_angle if reading.servo_angle is not None else (45 if is_on else (135 if str(reading.motor_status).upper() == "OFF" else 90))
+        return {
+            "has_data": True,
+            "motor_running": is_on,
+            "motor_status": status_text,
+            "servo_angle": angle,
+            "device_id": reading.device_id,
+            "timestamp": reading.timestamp
+        }
+    
+    return {
+        "has_data": False,
+        "motor_running": False,
+        "motor_status": "OFF (Default 90°)",
+        "servo_angle": 90,
+        "device_id": "esp32motor",
+        "timestamp": None
+    }
+
+
 def analyze_tank_timings(readings, now=None):
     if now is None:
         now = timezone.now()
 
+    motor_info = get_esp32motor_status()
+
     result = {
-        "is_filling": False,
-        "motor_detected": False,
-        "motor_status_text": "Idle / Standby",
+        "is_filling": motor_info["motor_running"],
+        "motor_detected": motor_info["motor_running"],
+        "motor_status_text": motor_info["motor_status"],
+        "servo_angle": motor_info["servo_angle"],
+        "motor_info": motor_info,
         "timing_75_to_100_seconds": None,
         "timing_75_to_100_text": "--",
         "step_timings": {
@@ -50,7 +87,7 @@ def analyze_tank_timings(readings, now=None):
     sorted_readings = sorted(readings, key=lambda r: r.timestamp)
 
     # Extract level transitions
-    transitions = []  # list of (level, timestamp)
+    transitions = []
     prev_level = None
     for r in sorted_readings:
         if r.water_level is None:
@@ -62,11 +99,6 @@ def analyze_tank_timings(readings, now=None):
 
     if not transitions:
         return result
-
-    # State Machine for Step Timings with Ripple / Wave Protection:
-    # Rule: 75->100 timer ONLY starts when water makes a true rise from <= 50% to 75%.
-    # It STOPS when water hits 100% with duration >= 15 seconds.
-    # Wave fluctuations / splashing between 75% and 100% do NOT reset or overwrite the timer.
 
     step_history = {
         "0_to_25": [],
@@ -101,9 +133,7 @@ def analyze_tank_timings(readings, now=None):
                 start_times["at_75"] = r.timestamp
             continue
 
-        # Level change detected
         if lvl != prev_level:
-            # Water level dropped
             if lvl < prev_level:
                 if lvl <= 0:
                     start_times["at_0"] = r.timestamp
@@ -117,11 +147,7 @@ def analyze_tank_timings(readings, now=None):
                 elif lvl <= 50:
                     start_times["at_50"] = r.timestamp
                     start_times["at_75"] = None
-                # If it dropped from 100 to 75 (wave ripple), DO NOT reset start_times["at_75"]!
-            
-            # Water level rose
             elif lvl > prev_level:
-                # 0 -> 25
                 if prev_level <= 0 and lvl >= 25:
                     if start_times["at_0"]:
                         d = (r.timestamp - start_times["at_0"]).total_seconds()
@@ -129,7 +155,6 @@ def analyze_tank_timings(readings, now=None):
                             step_history["0_to_25"].append(d)
                     start_times["at_25"] = r.timestamp
 
-                # 25 -> 50
                 if prev_level <= 25 and lvl >= 50:
                     if start_times["at_25"]:
                         d = (r.timestamp - start_times["at_25"]).total_seconds()
@@ -137,29 +162,22 @@ def analyze_tank_timings(readings, now=None):
                             step_history["25_to_50"].append(d)
                     start_times["at_50"] = r.timestamp
 
-                # 50 -> 75 (True rising start for 75 -> 100 timer!)
                 if prev_level <= 50 and lvl >= 75:
                     if start_times["at_50"]:
                         d = (r.timestamp - start_times["at_50"]).total_seconds()
                         if 10 < d < 3600:
                             step_history["50_to_75"].append(d)
-                    # RESET timer start for 75->100
                     start_times["at_75"] = r.timestamp
 
-                # 75 -> 100 (Stop timer for 75->100!)
                 if prev_level >= 75 and lvl >= 100:
                     if start_times["at_75"]:
                         d = (r.timestamp - start_times["at_75"]).total_seconds()
-                        # Only accept if duration is between 2 min (120s) and 30 min (1800s).
-                        # Less than 2 min or more than 30 min is ignored as anomalous.
                         if 120 <= d <= 1800:
                             step_history["75_to_100"].append(d)
-                        # Clear active 75 timer once 100 is reached
                         start_times["at_75"] = None
 
             prev_level = lvl
 
-    # Fill result with latest recorded step durations
     all_known_steps = []
     for k, vals in step_history.items():
         if vals:
@@ -173,20 +191,10 @@ def analyze_tank_timings(readings, now=None):
                 result["timing_75_to_100_seconds"] = latest_dur
                 result["timing_75_to_100_text"] = format_duration(latest_dur)
 
-    # Total recorded fill time if all steps known
     if all(result["step_timings"][k]["seconds"] is not None for k in result["step_timings"]):
         total_s = sum(result["step_timings"][k]["seconds"] for k in result["step_timings"])
         result["total_fill_time_seconds"] = total_s
         result["total_fill_time_text"] = format_duration(total_s)
-
-    # Identify the most recent recorded step duration to serve as the dynamic ground water fill rate reference
-    # Priority:
-    # 1. 50->75 from current/recent cycle (most up-to-date representation of today's ground water yield)
-    # 2. Last recorded 75->100
-    # 3. Last recorded 25->50 or 0->25
-    # 4. Default 180s baseline if brand new installation
-    latest_step_reference = None
-    reference_source_label = "Baseline (3m)"
 
     if step_history["50_to_75"]:
         latest_step_reference = step_history["50_to_75"][-1]
@@ -208,57 +216,46 @@ def analyze_tank_timings(readings, now=None):
     result["latest_reference_text"] = format_duration(latest_step_reference)
     result["reference_source_label"] = reference_source_label
 
-    # Current level analysis
     latest_reading = sorted_readings[-1]
     curr_lvl = int(round(latest_reading.water_level)) if latest_reading.water_level is not None else 0
     curr_lvl_time = latest_reading.timestamp
     time_since_curr_lvl = (now - curr_lvl_time).total_seconds()
 
-    # Active filling timer for 75% -> 100%
     active_75_start = start_times.get("at_75")
     time_spent_at_75 = (now - active_75_start).total_seconds() if active_75_start else 0
 
-    # Determine if motor/filling is currently active
-    is_actively_filling = False
-    if active_75_start is not None and curr_lvl == 75:
-        # Currently rising from 50% into 75% and waiting for 100%
-        if time_spent_at_75 < 1800:
-            is_actively_filling = True
-    elif curr_lvl in [25, 50, 75] and time_since_curr_lvl < 900:
-        is_actively_filling = True
+    # Get ACTUAL motor status reported by esp32motor.ino
+    # SERVER DOES NOT ASSUME MOTOR STATUS!
+    is_actively_filling = motor_info["motor_running"]
+    servo_angle = motor_info["servo_angle"]
 
-    # If current level is already 100%
-    if curr_lvl >= 100:
+    if curr_lvl >= 100 and not is_actively_filling:
         result["is_filling"] = False
         result["motor_detected"] = False
-        result["motor_status_text"] = "Tank Full (100%)"
+        result["motor_status_text"] = f"Tank Full (100%) - Servo: {servo_angle}°"
+        result["servo_angle"] = servo_angle
         result["eta_seconds"] = 0
         result["eta_text"] = "Tank Full (100%)"
         result["eta_target_time"] = "Full"
     elif is_actively_filling:
-        # Tank is actively filling / motor is running
         result["is_filling"] = True
         result["motor_detected"] = True
-        result["motor_status_text"] = "Motor Running (Filling Tank)"
+        result["motor_status_text"] = f"Motor ON (Servo: 45°)"
+        result["servo_angle"] = 45
 
-        # Calculate remaining time to 100% dynamically based on latest recorded ground water fill speed
         if curr_lvl == 75:
-            # Step 75->100 duration based on latest ground water rate
             step_75_100_est = latest_step_reference
             est_remaining = max(5, step_75_100_est - time_spent_at_75)
         elif curr_lvl == 50:
-            # 2 steps remaining (50->75 and 75->100)
             est_remaining = max(5, (2 * latest_step_reference) - time_since_curr_lvl)
         elif curr_lvl == 25:
-            # 3 steps remaining
             est_remaining = max(5, (3 * latest_step_reference) - time_since_curr_lvl)
-        else:  # 0%
+        else:
             est_remaining = max(10, (4 * latest_step_reference) - time_since_curr_lvl)
 
         result["eta_seconds"] = est_remaining
         result["eta_text"] = f"~{format_duration(est_remaining)} until 100%"
 
-        # Calculate target IST time
         target_time = now + datetime.timedelta(seconds=est_remaining)
         ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
         target_ist = target_time.astimezone(ist_offset)
@@ -266,9 +263,10 @@ def analyze_tank_timings(readings, now=None):
     else:
         result["is_filling"] = False
         result["motor_detected"] = False
-        result["motor_status_text"] = "Idle / Standby"
+        result["motor_status_text"] = f"Motor OFF (Servo: {servo_angle}°)"
+        result["servo_angle"] = servo_angle
         result["eta_seconds"] = None
-        result["eta_text"] = "Motor Idle"
+        result["eta_text"] = "Motor OFF"
         result["eta_target_time"] = "--"
 
     return result
@@ -276,14 +274,12 @@ def analyze_tank_timings(readings, now=None):
 
 def status(request):
     try:
-        # Fetch device IDs from top 50 recent readings
         recent_devs = TelemetryReading.objects.order_by('-timestamp')[:50].values_list('device_id', flat=True)
         device_ids = list(dict.fromkeys(recent_devs))
     except Exception:
         device_ids = []
 
-    # Ensure default tank monitor device is present
-    default_devices = ["esp8266_device_01"]
+    default_devices = ["esp8266_device_01", "esp32motor"]
     for dev in default_devices:
         if dev not in device_ids:
             device_ids.append(dev)
@@ -312,7 +308,6 @@ def status(request):
             else:
                 last_seen_text = f"{seconds_ago // 86400}d ago"
 
-            # Connection health
             if seconds_ago <= 15:
                 connection_status = "online"
             elif seconds_ago <= 60:
@@ -330,6 +325,9 @@ def status(request):
                 "probe_50": reading.probe_50,
                 "probe_75": reading.probe_75,
                 "probe_100": reading.probe_100,
+                "motor_status": reading.motor_status,
+                "motor_running": reading.motor_running,
+                "servo_angle": reading.servo_angle,
                 "timestamp": reading.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                 "iso_timestamp": reading.timestamp.isoformat(),
                 "seconds_ago": seconds_ago,
@@ -347,6 +345,9 @@ def status(request):
                 "probe_50": False,
                 "probe_75": False,
                 "probe_100": False,
+                "motor_status": "OFF",
+                "motor_running": False,
+                "servo_angle": 90,
                 "timestamp": "Never",
                 "iso_timestamp": None,
                 "seconds_ago": None,
@@ -354,7 +355,6 @@ def status(request):
                 "connection_status": "offline"
             }
 
-    # Fetch recent telemetry history across devices to compute fill analytics & ETA
     try:
         tank_readings = list(TelemetryReading.objects.order_by('-timestamp')[:200])
         fill_analytics = analyze_tank_timings(tank_readings, now=now)
@@ -362,7 +362,8 @@ def status(request):
         print(f"Fill analytics calculation error: {e}")
         fill_analytics = analyze_tank_timings([], now=now)
 
-    # Fetch recent logs across devices
+    motor_info = get_esp32motor_status()
+
     try:
         latest_logs = list(DeviceLog.objects.order_by('-timestamp')[:15])
         latest_logs.reverse()
@@ -393,16 +394,17 @@ def status(request):
             "devices": devices_data,
             "device_01": devices_data.get(active_dev_id) or devices_data.get("esp8266_device_01"),
             "fill_analytics": fill_analytics,
+            "motor_info": motor_info,
             "has_data": overall_latest is not None,
             "logs": latest_logs
         }
         return render(request, 'api/status.html', context)
 
-    # Return JSON response for AJAX requests
     return JsonResponse({
         "status": "success",
         "devices": devices_data,
         "fill_analytics": fill_analytics,
+        "motor_info": motor_info,
         "logs": logs_data,
         "device_id": overall_latest.device_id if overall_latest else "esp8266_device_01",
         "water_level": overall_latest.water_level if overall_latest else None,

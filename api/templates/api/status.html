@@ -864,6 +864,51 @@
                 </div>
             </div>
         </div>
+    <!-- ESP32 Motor Controller (SG90 Servo on D13) Section -->
+    <section class="logs-card" style="border-color: rgba(56, 189, 248, 0.35); background: linear-gradient(145deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.5));">
+        <div class="logs-header">
+            <h2 class="logs-title" style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7v5l3 3"></path>
+                </svg>
+                ESP32 Motor Controller (SG90 Servo @ Pin D13)
+            </h2>
+            <span id="motor-cmd-status" style="font-size: 0.78rem; font-weight: 600; color: #94a3b8;">
+                Real-Time Telemetry from esp32motor.ino
+            </span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 14px; padding: 4px 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: rgba(0, 0, 0, 0.25); padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                <div>
+                    <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
+                        Reported Motor Status
+                    </div>
+                    <div style="font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 800; color: #f8fafc;" id="motor-info-status-text">
+                        {% if motor_info.motor_running %}<span style="color: #38bdf8;">MOTOR ON (45°)</span>{% else %}<span style="color: #94a3b8;">MOTOR OFF ({% if motor_info.servo_angle %}{{ motor_info.servo_angle }}°{% else %}135°{% endif %})</span>{% endif %}
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
+                        SG90 Servo Angle
+                    </div>
+                    <div style="font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 800; color: #34d399;" id="motor-info-angle-text">
+                        {{ motor_info.servo_angle|default:"90" }}°
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button onclick="sendMotorCommand('MOTOR_ON')" style="flex: 1; min-width: 160px; background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Turn Motor ON (45°)
+                </button>
+                <button onclick="sendMotorCommand('MOTOR_OFF')" style="flex: 1; min-width: 160px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12"></rect></svg>
+                    Turn Motor OFF (135°)
+                </button>
+            </div>
+        </div>
     </section>
 
     <!-- Deep Sleep Configuration Section -->
@@ -919,9 +964,39 @@
             {% endif %}
         </div>
     </section>
-</div>
-
 <script>
+    async function sendMotorCommand(cmd) {
+        const statusEl = document.getElementById('motor-cmd-status');
+        if (statusEl) {
+            statusEl.style.color = '#38bdf8';
+            statusEl.textContent = `Queuing command '${cmd}'...`;
+        }
+        try {
+            const resp = await fetch('/api/command/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: 'esp32motor', command: cmd })
+            });
+            const res = await resp.json();
+            if (res.status === 'success') {
+                if (statusEl) {
+                    statusEl.style.color = '#34d399';
+                    statusEl.textContent = `Queued '${cmd}' for esp32motor!`;
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.style.color = '#f87171';
+                    statusEl.textContent = 'Failed to queue command';
+                }
+            }
+        } catch (e) {
+            if (statusEl) {
+                statusEl.style.color = '#f87171';
+                statusEl.textContent = 'Error connecting to server';
+            }
+        }
+    }
+
     async function sendSleepCommand(seconds) {
         const statusEl = document.getElementById('sleep-cmd-status');
         if (statusEl) statusEl.textContent = 'Sending command...';
@@ -1188,6 +1263,22 @@
                         // Update Fill Analytics
                         if (data.fill_analytics) {
                             updateFillAnalytics(data.fill_analytics, dev1.water_level);
+                        }
+
+                        // Update Motor Controller UI
+                        if (data.motor_info) {
+                            const statusTextEl = document.getElementById('motor-info-status-text');
+                            const angleTextEl = document.getElementById('motor-info-angle-text');
+                            if (statusTextEl) {
+                                if (data.motor_info.motor_running) {
+                                    statusTextEl.innerHTML = '<span style="color: #38bdf8;">MOTOR ON (45°)</span>';
+                                } else {
+                                    statusTextEl.innerHTML = `<span style="color: #94a3b8;">MOTOR OFF (${data.motor_info.servo_angle !== undefined ? data.motor_info.servo_angle : 135}°)</span>`;
+                                }
+                            }
+                            if (angleTextEl) {
+                                angleTextEl.textContent = (data.motor_info.servo_angle !== undefined && data.motor_info.servo_angle !== null) ? `${data.motor_info.servo_angle}°` : '90°';
+                            }
                         }
                     }
                 }

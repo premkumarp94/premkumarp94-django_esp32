@@ -316,25 +316,33 @@ void turnMotorOFF() {
 }
 
 void processCommand(const String &cmd) {
-  if (cmd.startsWith("SET_HOLD_TIME:") || cmd.startsWith("HOLD_MS:")) {
-    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+  int colonIndex = cmd.indexOf(':');
+
+  if (cmd.startsWith("SET_HOLD_TIME:") || cmd.startsWith("HOLD_MS:") || cmd.startsWith("SET_HOLD_MS:")) {
+    String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+    valStr.trim();
+    int val = valStr.toInt();
     if (val >= 100 && val <= 30000) {
       holdDurationMs = val;
       preferences.putInt("holdMs", holdDurationMs);
-      Serial.printf("[esp32motor] Updated Return to Default Hold Time: %d ms\n", holdDurationMs);
+      Serial.printf("[esp32motor] Updated Return Hold Delay: %d ms\n", holdDurationMs);
       sendMotorStatusToServer("updated return delay to " + String(holdDurationMs) + " ms");
     }
-  } else if (cmd.startsWith("SET_HOLD_SEC:")) {
-    float sec = cmd.substring(13).toFloat();
-    int val = (int)(sec * 1000.0);
+  } else if (cmd.startsWith("SET_HOLD_SEC:") || cmd.startsWith("HOLD_SEC:") || cmd.startsWith("HOLD_TIME:")) {
+    String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+    valStr.trim();
+    float sec = valStr.toFloat();
+    int val = (int)(sec * 1000.0 + 0.5); // Accurately round float seconds to integer ms (e.g. 0.5s -> 500ms)
     if (val >= 100 && val <= 30000) {
       holdDurationMs = val;
       preferences.putInt("holdMs", holdDurationMs);
-      Serial.printf("[esp32motor] Updated Return to Default Hold Time: %d ms\n", holdDurationMs);
+      Serial.printf("[esp32motor] Updated Return Hold Delay to: %d ms (%.2fs)\n", holdDurationMs, sec);
       sendMotorStatusToServer("updated return delay to " + String(holdDurationMs) + " ms");
     }
   } else if (cmd.startsWith("SET_ON_ANGLE:") || cmd.startsWith("ANGLE_ON:")) {
-    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+    String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+    valStr.trim();
+    int val = valStr.toInt();
     if (val >= 0 && val <= 180) {
       angleON = val;
       preferences.putInt("angleON", angleON);
@@ -342,7 +350,9 @@ void processCommand(const String &cmd) {
       sendMotorStatusToServer("updated motor start angle to " + String(angleON) + " deg");
     }
   } else if (cmd.startsWith("SET_OFF_ANGLE:") || cmd.startsWith("ANGLE_OFF:")) {
-    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+    String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+    valStr.trim();
+    int val = valStr.toInt();
     if (val >= 0 && val <= 180) {
       angleOFF = val;
       preferences.putInt("angleOFF", angleOFF);
@@ -350,7 +360,8 @@ void processCommand(const String &cmd) {
       sendMotorStatusToServer("updated motor stop angle to " + String(angleOFF) + " deg");
     }
   } else if (cmd.startsWith("SET_ANGLES:")) {
-    String rest = cmd.substring(11);
+    String rest = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+    rest.trim();
     int comma = rest.indexOf(',');
     if (comma > 0) {
       int onVal = rest.substring(0, comma).toInt();
@@ -362,13 +373,17 @@ void processCommand(const String &cmd) {
     }
   } else if (cmd == "MOTOR_ON" || cmd == "ON" || cmd == "TURN_ON" || cmd == "START" || cmd.startsWith("MOTOR_ON:")) {
     if (cmd.startsWith("MOTOR_ON:")) {
-      int val = cmd.substring(9).toInt();
+      String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+      valStr.trim();
+      int val = valStr.toInt();
       if (val >= 0 && val <= 180) { angleON = val; preferences.putInt("angleON", angleON); }
     }
     turnMotorON();
   } else if (cmd == "MOTOR_OFF" || cmd == "OFF" || cmd == "TURN_OFF" || cmd == "STOP" || cmd.startsWith("MOTOR_OFF:")) {
     if (cmd.startsWith("MOTOR_OFF:")) {
-      int val = cmd.substring(10).toInt();
+      String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+      valStr.trim();
+      int val = valStr.toInt();
       if (val >= 0 && val <= 180) { angleOFF = val; preferences.putInt("angleOFF", angleOFF); }
     }
     turnMotorOFF();

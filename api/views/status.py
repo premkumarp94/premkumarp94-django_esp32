@@ -2,7 +2,7 @@ import datetime
 from django.utils import timezone
 from django.http import JsonResponse
 from django.shortcuts import render
-from api.models import TelemetryReading, DeviceLog
+from api.models import TelemetryReading, DeviceCommand, DeviceLog
 
 def format_duration(seconds):
     if seconds is None or seconds < 0:
@@ -29,6 +29,11 @@ def get_esp32motor_status():
             motor_status__isnull=False
         ).order_by('-timestamp').first()
         
+    pending_cmd = DeviceCommand.objects.filter(
+        device_id__icontains="motor",
+        is_executed=False
+    ).last()
+
     if reading:
         is_on = reading.motor_running if reading.motor_running is not None else (str(reading.motor_status).upper() in ["ON", "RUNNING", "TRUE"])
         angle = reading.servo_angle if reading.servo_angle is not None else (45 if is_on else (135 if str(reading.motor_status).upper() == "OFF" else 90))
@@ -41,7 +46,9 @@ def get_esp32motor_status():
             "raw_status": reading.motor_status or ("ON" if is_on else "OFF"),
             "servo_angle": angle,
             "device_id": reading.device_id,
-            "timestamp": reading.timestamp
+            "timestamp": reading.timestamp,
+            "has_pending_command": pending_cmd is not None,
+            "pending_command": pending_cmd.command if pending_cmd else ""
         }
     
     return {
@@ -51,7 +58,9 @@ def get_esp32motor_status():
         "raw_status": "OFF",
         "servo_angle": 90,
         "device_id": "esp32motor",
-        "timestamp": None
+        "timestamp": None,
+        "has_pending_command": pending_cmd is not None,
+        "pending_command": pending_cmd.command if pending_cmd else ""
     }
 
 

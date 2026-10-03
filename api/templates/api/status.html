@@ -1330,6 +1330,8 @@
                         if (data.motor_info) {
                             const statusTextEl = document.getElementById('motor-info-status-text');
                             const angleTextEl = document.getElementById('motor-info-angle-text');
+                            const cmdStatusEl = document.getElementById('motor-cmd-status');
+
                             if (statusTextEl) {
                                 if (data.motor_info.motor_running) {
                                     statusTextEl.innerHTML = `<span style="color: #38bdf8;">MOTOR ON (Servo: ${data.motor_info.servo_angle !== undefined ? data.motor_info.servo_angle : 45}°)</span>`;
@@ -1339,6 +1341,25 @@
                             }
                             if (angleTextEl) {
                                 angleTextEl.textContent = (data.motor_info.servo_angle !== undefined && data.motor_info.servo_angle !== null) ? `${data.motor_info.servo_angle}°` : '90°';
+                            }
+
+                            // Dynamic command execution & device acceptance status
+                            if (data.motor_info.has_pending_command) {
+                                if (cmdStatusEl && !cmdStatusEl.textContent.includes('Queued')) {
+                                    cmdStatusEl.style.color = '#38bdf8';
+                                    cmdStatusEl.textContent = `Syncing command '${data.motor_info.pending_command}' with esp32motor...`;
+                                }
+                            } else if (cmdStatusEl) {
+                                if (cmdStatusEl.textContent.includes('Queued') || cmdStatusEl.textContent.includes('Syncing')) {
+                                    cmdStatusEl.style.color = '#34d399';
+                                    cmdStatusEl.textContent = '✓ Device Accepted & Synced Config!';
+                                    setTimeout(() => {
+                                        if (cmdStatusEl && cmdStatusEl.textContent.includes('Accepted')) {
+                                            cmdStatusEl.style.color = '#94a3b8';
+                                            cmdStatusEl.textContent = 'Real-Time Telemetry from esp32motor.ino';
+                                        }
+                                    }, 4000);
+                                }
                             }
                         }
                     }

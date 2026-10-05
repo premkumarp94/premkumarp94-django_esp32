@@ -87,4 +87,41 @@ class TelemetryAndMotorTestCase(TestCase):
         self.assertEqual(get_system_setting("motor_angle_on"), "40")
         self.assertEqual(get_system_setting("motor_angle_off"), "140")
 
+    def test_probe_read_ago_sec_handling(self):
+        # 1. Post telemetry with probe_read_ago_sec = 120 (sampled 2 minutes before HTTP sync)
+        self.client.post(
+            '/api/telemetry/',
+            data=json.dumps({
+                "id": "esp8266_device_01",
+                "sensor values": {
+                    "water_level": 75,
+                    "probe_read_ago_sec": 120
+                }
+            }),
+            content_type='application/json'
+        )
+
+        reading = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
+        self.assertEqual(reading.probe_read_ago_sec, 120)
+
+        status_resp = self.client.get('/api/status/?format=json')
+        dev_data = status_resp.json()["devices"]["esp8266_device_01"]
+        self.assertGreaterEqual(dev_data["probe_read_ago_sec"], 120)
+        self.assertNotEqual(dev_data["probe_read_text"], "Never")
+
+        # 2. Post telemetry with probe_read_ago_sec = 0 (sampled at same time as POST)
+        self.client.post(
+            '/api/telemetry/',
+            data=json.dumps({
+                "id": "esp8266_device_01",
+                "sensor values": {
+                    "water_level": 75,
+                    "probe_read_ago_sec": 0
+                }
+            }),
+            content_type='application/json'
+        )
+        reading2 = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
+        self.assertEqual(reading2.probe_read_ago_sec, 0)
+
 

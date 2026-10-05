@@ -25,7 +25,9 @@ def telemetry(request):
             probe_75 = sensor_values.get("probe_75")
             probe_100 = sensor_values.get("probe_100")
             
-            probe_read_ago_sec = sensor_values.get("probe_read_ago_sec") or data.get("probe_read_ago_sec")
+            probe_read_ago_sec = sensor_values.get("probe_read_ago_sec")
+            if probe_read_ago_sec is None:
+                probe_read_ago_sec = data.get("probe_read_ago_sec")
             
             # Motor status values reported by esp32motor
             motor_status = data.get("motor_status") or sensor_values.get("motor_status")

@@ -119,6 +119,7 @@ class TelemetryAndMotorTestCase(TestCase):
         status_resp2 = self.client.get('/api/status/?format=json')
         dev_data2 = status_resp2.json()["devices"]["esp8266_device_01"]
         self.assertEqual(dev_data2["last_seen_text"], "Just now")
+        self.assertEqual(dev_data2["water_level"], 75.0)
         self.assertIsNotNone(dev_data2["probe_read_ago_sec"])
 
     def test_max_run_min_setting_and_auto_shutoff(self):

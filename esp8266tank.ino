@@ -3,6 +3,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <espnow.h>
 
 //==================================================
 // WIFI
@@ -21,8 +22,70 @@ String pendingDeviceMsg = "esp8266 booted normally";
 
 int iterationCount = 0;
 
-// Synced reading interval setting while motor is OFF (Default: 60 seconds)
+// Synced probe reading interval setting maintained from browser (Default: 60 seconds)
 uint32_t readingIntervalSeconds = 60;
+
+// Hardcoded online telemetry sync interval (Strictly 10 seconds)
+const unsigned long ONLINE_SYNC_INTERVAL_MS = 10000;
+
+// Non-blocking timer tracking variables
+unsigned long lastProbeReadTime = 0;
+unsigned long lastOnlineSyncTime = 0;
+
+// Cached water level state
+int cachedWaterLevel = 0;
+
+//==================================================
+// ESP-NOW (WIFINOW) P2P DATA STRUCTURE & LOGIC
+//==================================================
+
+// ESP-NOW Data Structure (Shared between ESP8266 Tank & ESP32 Motor)
+typedef struct __attribute__((packed)) {
+  char device_id[32];     // "esp8266_device_01"
+  int water_level;        // 0, 25, 50, 75, 100
+  bool probe_25;
+  bool probe_50;
+  bool probe_75;
+  bool probe_100;
+  bool motor_running;     // Reported or requested motor status
+  uint32_t interval_sec;  // Synced reading interval
+  uint32_t msg_count;     // Packet sequence counter
+} EspNowMessage;
+
+bool espNowInitialized = false;
+uint8_t broadcastMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+bool motorRunning = false;
+
+// Forward declarations
+int readWaterLevel();
+
+void initEspNow() {
+  if (espNowInitialized) return;
+
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() == 0) {
+    espNowInitialized = true;
+    esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
+    esp_now_add_peer(broadcastMac, ESP_NOW_ROLE_COMBO, 1, NULL, 0);
+
+    esp_now_register_recv_cb([](uint8_t *mac, uint8_t *incomingData, uint8_t len) {
+      if (len == sizeof(EspNowMessage)) {
+        EspNowMessage msg;
+        memcpy(&msg, incomingData, sizeof(msg));
+        Serial.printf("[ESP-NOW RX] Message from %s: Motor Running=%s, Interval=%u\n",
+                      msg.device_id, msg.motor_running ? "YES" : "NO", msg.interval_sec);
+        motorRunning = msg.motor_running;
+        if (msg.interval_sec >= 1 && msg.interval_sec <= 86400) {
+          readingIntervalSeconds = msg.interval_sec;
+        }
+      }
+    });
+    Serial.println("[ESP-NOW] Initialized successfully on ESP8266.");
+  } else {
+    Serial.println("[ESP-NOW] Initialization failed on ESP8266.");
+  }
+}
 
 //==================================================
 // WATER PROBES & WIRE COLORS
@@ -42,6 +105,39 @@ const int PROBE_100 = D1; // Black
 // Probe in air   = HIGH
 // Probe in water = LOW
 const bool USE_INTERNAL_PULLUP = true;
+
+// Individual probe detection states
+bool probe25Detected = false;
+bool probe50Detected = false;
+bool probe75Detected = false;
+bool probe100Detected = false;
+
+int lastWaterLevel = -1;
+
+void sendEspNowTelemetry(int waterLevel) {
+  initEspNow();
+
+  EspNowMessage msg;
+  memset(&msg, 0, sizeof(msg));
+  strncpy(msg.device_id, DEVICE_ID, sizeof(msg.device_id) - 1);
+  msg.water_level = waterLevel;
+  msg.probe_25 = probe25Detected;
+  msg.probe_50 = probe50Detected;
+  msg.probe_75 = probe75Detected;
+  msg.probe_100 = probe100Detected;
+  msg.motor_running = motorRunning;
+  msg.interval_sec = readingIntervalSeconds;
+  static uint32_t seq = 0;
+  msg.msg_count = ++seq;
+
+  int result = esp_now_send(broadcastMac, (uint8_t *)&msg, sizeof(msg));
+  if (result == 0) {
+    Serial.printf("[ESP-NOW TX] Broadcasted Water Level %d%% (Probe 100: %s, Auto OFF: %s) via ESP-NOW\n",
+                  waterLevel, probe100Detected ? "YES" : "NO", (waterLevel >= 100) ? "YES" : "NO");
+  } else {
+    Serial.printf("[ESP-NOW TX ERROR] Send failed with code: %d\n", result);
+  }
+}
 
 //==================================================
 // SERVERS
@@ -71,7 +167,7 @@ bool connectWiFi() {
 
   int attempts = 0;
 
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 15) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -86,23 +182,14 @@ bool connectWiFi() {
     return true;
   }
 
-  Serial.println("WiFi connection failed.");
+  Serial.println("WiFi connection failed (Offline ESP-NOW mode active).");
 
   return false;
 }
 
 //==================================================
-// WATER LEVEL
+// WATER LEVEL READ
 //==================================================
-
-// Individual probe detection states
-bool probe25Detected = false;
-bool probe50Detected = false;
-bool probe75Detected = false;
-bool probe100Detected = false;
-
-int lastWaterLevel = -1;
-bool motorRunning = false;
 
 int readWaterLevel() {
   // Dynamic discharge delay based on water level:
@@ -302,14 +389,12 @@ bool discoverServer() {
 // BUILD TELEMETRY JSON
 //==================================================
 
-String buildTelemetry(const String &ack, const String &message) {
+String buildTelemetry(const String &ack, const String &message, int waterLevel) {
   StaticJsonDocument<512> doc;
 
   doc["id"] = DEVICE_ID;
 
   JsonObject sensor = doc.createNestedObject("sensor values");
-
-  int waterLevel = readWaterLevel();
 
   sensor["water_level"] = waterLevel;
   sensor["probe_25"] = probe25Detected;
@@ -329,10 +414,10 @@ String buildTelemetry(const String &ack, const String &message) {
 }
 
 //==================================================
-// SEND NORMAL TELEMETRY
+// SEND NORMAL TELEMETRY (ONLINE HARDCODED 10s TIMER)
 //==================================================
 
-bool sendTelemetry() {
+bool sendTelemetry(int waterLevel) {
   if (activeServer == -1) {
     if (!discoverServer()) {
       return false;
@@ -343,10 +428,10 @@ bool sendTelemetry() {
 
   String message = pendingDeviceMsg;
 
-  String body = buildTelemetry(ack, message);
+  String body = buildTelemetry(ack, message, waterLevel);
 
   Serial.println();
-  Serial.println("Sending telemetry:");
+  Serial.println("Sending online telemetry (10s Hardcoded Sync Timer):");
 
   Serial.println(body);
 
@@ -380,18 +465,24 @@ bool sendTelemetry() {
       motorRunning = respDoc["is_filling"].as<bool>();
     }
 
-    // Sync interval_seconds / sleep_seconds from server response if provided
+    // Sync reading interval maintained from browser setting
     if (respDoc.containsKey("interval_seconds")) {
       uint32_t sSec = respDoc["interval_seconds"].as<uint32_t>();
       if (sSec >= 1 && sSec <= 86400) {
         readingIntervalSeconds = sSec;
-        Serial.printf("[SERVER SYNC] Synced reading interval while motor OFF: %u sec\n", readingIntervalSeconds);
+        Serial.printf("[BROWSER SYNC] Synced probe reading interval from server: %u sec\n", readingIntervalSeconds);
+      }
+    } else if (respDoc.containsKey("sync_interval")) {
+      uint32_t sSec = respDoc["sync_interval"].as<uint32_t>();
+      if (sSec >= 1 && sSec <= 86400) {
+        readingIntervalSeconds = sSec;
+        Serial.printf("[BROWSER SYNC] Synced probe reading interval from server: %u sec\n", readingIntervalSeconds);
       }
     } else if (respDoc.containsKey("sleep_seconds")) {
       uint32_t sSec = respDoc["sleep_seconds"].as<uint32_t>();
       if (sSec >= 1 && sSec <= 86400) {
         readingIntervalSeconds = sSec;
-        Serial.printf("[SERVER SYNC] Synced reading interval while motor OFF: %u sec\n", readingIntervalSeconds);
+        Serial.printf("[BROWSER SYNC] Synced probe reading interval from server: %u sec\n", readingIntervalSeconds);
       }
     }
 
@@ -404,7 +495,7 @@ bool sendTelemetry() {
         int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
         if (val >= 1 && val <= 86400) {
           readingIntervalSeconds = (uint32_t)val;
-          Serial.printf("[COMMAND SYNC] Updated reading interval to %u sec\n", readingIntervalSeconds);
+          Serial.printf("[COMMAND SYNC] Updated probe reading interval to %u sec\n", readingIntervalSeconds);
         }
       }
     }
@@ -439,8 +530,17 @@ void setup() {
   pinMode(PROBE_75, INPUT);
   pinMode(PROBE_100, INPUT);
 
+  // Initial water probe reading at boot
+  cachedWaterLevel = readWaterLevel();
+
   //================================================
-  // WIFI
+  // ESP-NOW (WIFINOW) INITIALIZATION
+  //================================================
+
+  initEspNow();
+
+  //================================================
+  // WIFI & SERVER CONNECT
   //================================================
 
   if (connectWiFi()) {
@@ -453,46 +553,60 @@ void setup() {
 //==================================================
 
 void loop() {
-  // Make sure WiFi is available
-  if (!connectWiFi()) {
-    delay(2000);
+  unsigned long now = millis();
 
-    return;
+  //================================================
+  // 1. SEPARATE PROBE READING & ESP-NOW TIMER
+  // Maintained from browser-synced readingIntervalSeconds (or 10s if motor running)
+  //================================================
+  uint32_t activeReadingIntervalSec = motorRunning ? 10 : readingIntervalSeconds;
+  unsigned long probeReadIntervalMs = (unsigned long)activeReadingIntervalSec * 1000;
+
+  if (now - lastProbeReadTime >= probeReadIntervalMs || lastProbeReadTime == 0) {
+    lastProbeReadTime = now;
+
+    // Read water level probes locally
+    cachedWaterLevel = readWaterLevel();
+
+    // Broadcast probe state & water level via ESP-NOW (wifinow)
+    // Ensures ESP32 Motor Controller receives 100% auto-shutoff immediately, online or offline!
+    sendEspNowTelemetry(cachedWaterLevel);
+
+    Serial.printf("\n[PROBE TIMER] Water Level sampled: %d%% | Next probe sample in %u sec (Browser Setting: %u sec)\n",
+                  cachedWaterLevel, activeReadingIntervalSec, readingIntervalSeconds);
   }
 
   //================================================
-  // NORMAL TELEMETRY
+  // 2. SEPARATE HARDCODED 10-SECOND ONLINE TELEMETRY SYNC TIMER
+  // Strictly syncs online HTTP telemetry every 10 seconds
   //================================================
+  if (now - lastOnlineSyncTime >= ONLINE_SYNC_INTERVAL_MS || lastOnlineSyncTime == 0) {
+    lastOnlineSyncTime = now;
 
-  sendTelemetry();
+    bool isOnline = connectWiFi();
+    if (isOnline) {
+      sendTelemetry(cachedWaterLevel);
+    } else {
+      Serial.println("[OFFLINE MODE] Router/Internet unavailable. Operating in ESP-NOW local radio mode with ESP32 Motor.");
+    }
 
-  //================================================
-  // ITERATION MESSAGE
-  //================================================
+    if (iterationCount == 0) {
+      pendingDeviceMsg = "came to first iteration";
+    }
 
-  if (iterationCount == 0) {
-    pendingDeviceMsg = "came to first iteration";
+    iterationCount++;
+
+    Serial.println();
+    Serial.printf("Iteration: %d | Mode: %s (10s Hardcoded Online Timer) | Motor Status: ",
+                  iterationCount, isOnline ? "ONLINE" : "OFFLINE");
+    if (motorRunning) {
+      Serial.println("RUNNING (Motor is ON -> Probe reading interval forced to 10s)");
+    } else {
+      Serial.printf("OFF / IDLE (Motor is OFF -> Browser Synced Probe Interval: %u sec)\n", readingIntervalSeconds);
+    }
+
+    Serial.println("------------------------------------");
   }
 
-  iterationCount++;
-
-  // Dynamic reading interval:
-  // If motor is running -> check/telemetry interval is 10 seconds.
-  // While motor is off   -> use readingIntervalSeconds (default 60s or browser/server synced setting).
-  uint32_t activeIntervalSeconds = motorRunning ? 10 : readingIntervalSeconds;
-  unsigned long checkIntervalMs = (unsigned long)activeIntervalSeconds * 1000;
-
-  Serial.println();
-  Serial.print("Iteration: ");
-  Serial.println(iterationCount);
-  Serial.print("Motor Status: ");
-  if (motorRunning) {
-    Serial.println("RUNNING (Motor is ON -> Reading interval set to 10s)");
-  } else {
-    Serial.printf("OFF / IDLE (Motor is OFF -> Synced reading interval: %u sec)\n", readingIntervalSeconds);
-  }
-
-  Serial.println("------------------------------------");
-
-  delay(checkIntervalMs);
+  delay(50); // Non-blocking loop iteration delay
 }

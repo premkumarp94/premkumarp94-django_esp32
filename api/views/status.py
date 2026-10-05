@@ -2,9 +2,10 @@ import datetime
 from django.utils import timezone
 from django.http import JsonResponse
 from django.shortcuts import render
-from api.models import TelemetryReading, DeviceCommand, DeviceLog
+from api.models import TelemetryReading, DeviceCommand, DeviceLog, get_system_setting
 
 def format_duration(seconds):
+
     if seconds is None or seconds < 0:
         return "--"
     seconds = int(round(seconds))
@@ -34,9 +35,26 @@ def get_esp32motor_status():
         is_executed=False
     ).last()
 
+    try:
+        hold_ms = int(get_system_setting("motor_hold_ms", "1000"))
+    except ValueError:
+        hold_ms = 1000
+
+    try:
+        angle_on = int(get_system_setting("motor_angle_on", "45"))
+    except ValueError:
+        angle_on = 45
+
+    try:
+        angle_off = int(get_system_setting("motor_angle_off", "135"))
+    except ValueError:
+        angle_off = 135
+
+    hold_sec = round(hold_ms / 1000.0, 2)
+
     if reading:
         is_on = reading.motor_running if reading.motor_running is not None else (str(reading.motor_status).upper() in ["ON", "RUNNING", "TRUE"])
-        angle = reading.servo_angle if reading.servo_angle is not None else (45 if is_on else (135 if str(reading.motor_status).upper() == "OFF" else 90))
+        angle = reading.servo_angle if reading.servo_angle is not None else (angle_on if is_on else (angle_off if str(reading.motor_status).upper() == "OFF" else 90))
         status_label = "Motor ON" if is_on else "Motor OFF"
         status_text = f"{status_label} (Servo: {angle}°)"
         return {
@@ -45,6 +63,10 @@ def get_esp32motor_status():
             "motor_status": status_text,
             "raw_status": reading.motor_status or ("ON" if is_on else "OFF"),
             "servo_angle": angle,
+            "angle_on": angle_on,
+            "angle_off": angle_off,
+            "hold_ms": hold_ms,
+            "hold_sec": hold_sec,
             "device_id": reading.device_id,
             "timestamp": reading.timestamp,
             "has_pending_command": pending_cmd is not None,
@@ -57,11 +79,16 @@ def get_esp32motor_status():
         "motor_status": "Motor OFF (Servo: 90°)",
         "raw_status": "OFF",
         "servo_angle": 90,
+        "angle_on": angle_on,
+        "angle_off": angle_off,
+        "hold_ms": hold_ms,
+        "hold_sec": hold_sec,
         "device_id": "esp32motor",
         "timestamp": None,
         "has_pending_command": pending_cmd is not None,
         "pending_command": pending_cmd.command if pending_cmd else ""
     }
+
 
 
 def analyze_tank_timings(readings, now=None):
@@ -405,12 +432,19 @@ def status(request):
     active_tank_id = tank_latest.device_id if tank_latest else "esp8266_device_01"
     tank_device_data = devices_data.get(active_tank_id) or devices_data.get("esp8266_device_01")
 
+    sync_interval_str = get_system_setting("sync_interval", "60")
+    try:
+        sync_interval = int(sync_interval_str)
+    except ValueError:
+        sync_interval = 60
+
     if 'text/html' in accept_header and format_param != 'json':
         context = {
             "devices": devices_data,
             "device_01": tank_device_data,
             "fill_analytics": fill_analytics,
             "motor_info": motor_info,
+            "sync_interval": sync_interval,
             "has_data": tank_latest is not None,
             "logs": latest_logs
         }
@@ -421,6 +455,7 @@ def status(request):
         "devices": devices_data,
         "fill_analytics": fill_analytics,
         "motor_info": motor_info,
+        "sync_interval": sync_interval,
         "logs": logs_data,
         "device_id": active_tank_id,
         "water_level": tank_latest.water_level if tank_latest else None,
@@ -428,3 +463,4 @@ def status(request):
         "humidity": tank_latest.humidity if tank_latest else None,
         "timestamp": tank_latest.timestamp.strftime('%Y-%m-%d %H:%M:%S') if tank_latest else None,
     })
+

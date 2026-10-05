@@ -917,15 +917,15 @@
                 <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
                         <label for="motor-on-angle-input" style="font-size: 0.75rem; color: var(--text-secondary);">Start Angle (ON):</label>
-                        <input type="number" id="motor-on-angle-input" min="0" max="180" value="45" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                        <input type="number" id="motor-on-angle-input" min="0" max="180" value="{{ motor_info.angle_on|default:45 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
                         <label for="motor-off-angle-input" style="font-size: 0.75rem; color: var(--text-secondary);">Stop Angle (OFF):</label>
-                        <input type="number" id="motor-off-angle-input" min="0" max="180" value="135" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                        <input type="number" id="motor-off-angle-input" min="0" max="180" value="{{ motor_info.angle_off|default:135 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
                         <label for="motor-hold-sec-input" style="font-size: 0.75rem; color: var(--text-secondary);">Return Delay (Sec):</label>
-                        <input type="number" id="motor-hold-sec-input" min="0.1" max="30" step="0.1" value="1.0" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                        <input type="number" id="motor-hold-sec-input" min="0.1" max="30" step="0.1" value="{{ motor_info.hold_sec|default:1.0 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
                     </div>
                     <button onclick="syncMotorAngles()" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 9px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; align-self: flex-end;">
                         Sync Config
@@ -945,7 +945,7 @@
                 </svg>
                 ESP8266 Reading Interval Sync (Default: 60s | Motor ON: 10s)
             </h2>
-            <span id="sleep-cmd-status" style="font-size: 0.78rem; font-weight: 600; color: #94a3b8;">Syncs directly with esp8266tank.ino</span>
+            <span id="sleep-cmd-status" style="font-size: 0.78rem; font-weight: 600; color: #34d399;">Active Server Synced Interval: <span id="synced-interval-display">{{ sync_interval|default:60 }}</span>s</span>
         </div>
         <div style="display: flex; flex-direction: column; gap: 14px; padding: 4px 0;">
             <div style="font-size: 0.85rem; color: var(--text-secondary);">
@@ -1302,6 +1302,11 @@
             if (response.ok) {
                 const data = await response.json();
 
+                if (data.sync_interval) {
+                    const syncDisplay = document.getElementById('synced-interval-display');
+                    if (syncDisplay) syncDisplay.textContent = data.sync_interval;
+                }
+
                 if (data.status === 'success' && data.devices) {
                     const activeId = data.device_id || 'esp8266_device_01';
                     const dev1 = data.devices['esp8266_device_01'] ||
@@ -1341,6 +1346,21 @@
                             }
                             if (angleTextEl) {
                                 angleTextEl.textContent = (data.motor_info.servo_angle !== undefined && data.motor_info.servo_angle !== null) ? `${data.motor_info.servo_angle}°` : '90°';
+                            }
+
+                            // Sync servo angle & return hold duration input fields if not focused
+                            const onAngleIn = document.getElementById('motor-on-angle-input');
+                            const offAngleIn = document.getElementById('motor-off-angle-input');
+                            const holdSecIn = document.getElementById('motor-hold-sec-input');
+
+                            if (onAngleIn && document.activeElement !== onAngleIn && data.motor_info.angle_on !== undefined) {
+                                onAngleIn.value = data.motor_info.angle_on;
+                            }
+                            if (offAngleIn && document.activeElement !== offAngleIn && data.motor_info.angle_off !== undefined) {
+                                offAngleIn.value = data.motor_info.angle_off;
+                            }
+                            if (holdSecIn && document.activeElement !== holdSecIn && data.motor_info.hold_sec !== undefined) {
+                                holdSecIn.value = data.motor_info.hold_sec;
                             }
 
                             // Dynamic command execution & device acceptance status

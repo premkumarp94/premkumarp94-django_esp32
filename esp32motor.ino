@@ -4,6 +4,8 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -37,10 +39,87 @@ Preferences preferences;
 bool motorRunning     = false;
 int currentAngle      = ANGLE_DEFAULT;
 String motorStatus    = "OFF";
-int currentWaterLevel = 0; // Synced water level from Django server
+int currentWaterLevel = 0; // Synced water level from Django server or ESP-NOW
+uint32_t syncIntervalSeconds = 2; // Server synced interval
 
 // Loop timer tracking
 unsigned long lastSyncTime = 0;
+
+//==================================================
+// ESP-NOW (WIFINOW) P2P DATA STRUCTURE & LOGIC
+//==================================================
+
+// ESP-NOW Data Structure (Shared between ESP8266 Tank & ESP32 Motor)
+typedef struct __attribute__((packed)) {
+  char device_id[32];     // "esp8266_device_01"
+  int water_level;        // 0, 25, 50, 75, 100
+  bool probe_25;
+  bool probe_50;
+  bool probe_75;
+  bool probe_100;
+  bool motor_running;     // Reported or requested motor status
+  uint32_t interval_sec;  // Synced reading interval
+  uint32_t msg_count;     // Packet sequence counter
+} EspNowMessage;
+
+bool espNowInitialized = false;
+uint8_t broadcastMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// Forward declarations
+void turnMotorOFF();
+void turnMotorON();
+void processCommand(const String &cmd);
+void updateWaterLevelLEDs();
+
+#if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
+void onEspNowRecv32(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
+  const uint8_t *mac = recv_info->src_addr;
+#else
+void onEspNowRecv32(const uint8_t *mac, const uint8_t *incomingData, int len) {
+#endif
+  if (len == sizeof(EspNowMessage)) {
+    EspNowMessage msg;
+    memcpy(&msg, incomingData, sizeof(msg));
+
+    Serial.printf("\n[ESP-NOW RX] Data from %s: Water Level=%d%% (Probe 100: %s)\n",
+                  msg.device_id, msg.water_level, msg.probe_100 ? "YES" : "NO");
+
+    // Update local water level state immediately
+    currentWaterLevel = msg.water_level;
+    updateWaterLevelLEDs();
+
+    // AUTO-SHUTOFF FAILSAFE VIA ESP-NOW:
+    // If water level reaches 100% or probe 100 is detected, AND motor is running -> TURN OFF MOTOR
+    if ((msg.water_level >= 100 || msg.probe_100) && motorRunning) {
+      Serial.println("\n[ESP-NOW AUTO-SHUTOFF] Tank 100% FULL detected via ESP-NOW! Turning OFF motor immediately...");
+      turnMotorOFF();
+    }
+  }
+}
+
+void initEspNow32() {
+  if (espNowInitialized) return;
+
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() == ESP_OK) {
+    espNowInitialized = true;
+    esp_now_register_recv_cb(onEspNowRecv32);
+
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, broadcastMac, 6);
+    peerInfo.channel = 0; // Current WiFi channel
+    peerInfo.encrypt = false;
+
+    if (!esp_now_is_peer_exist(broadcastMac)) {
+      esp_now_add_peer(&peerInfo);
+    }
+
+    Serial.println("[ESP-NOW] Initialized successfully on ESP32 Motor Controller.");
+  } else {
+    Serial.println("[ESP-NOW] Initialization failed on ESP32.");
+  }
+}
 
 //==================================================
 // WIFI CREDENTIALS & DEVICE IDENTIFIER
@@ -59,10 +138,6 @@ int activeServer = -1;
 
 String pendingMsg = "esp32motor booted - default angle set to 90 deg";
 
-// Forward declarations
-void processCommand(const String &cmd);
-void updateWaterLevelLEDs();
-
 //==================================================
 // WIFI CONNECTION
 //==================================================
@@ -79,7 +154,7 @@ bool connectWiFi() {
   WiFi.begin(ssid, password);
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 15) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -92,7 +167,7 @@ bool connectWiFi() {
     return true;
   }
 
-  Serial.println("[esp32motor] WiFi Connection Failed.");
+  Serial.println("[esp32motor] WiFi Connection Failed (Offline ESP-NOW mode active).");
   return false;
 }
 
@@ -209,20 +284,36 @@ bool sendMotorStatusToServer(const String &extraMessage = "") {
   Serial.println("Server Response:");
   Serial.println(response);
 
-  // Parse server response for water level & queued motor commands
+  // Parse server response for water level, interval & queued motor commands
   StaticJsonDocument<512> respDoc;
   DeserializationError err = deserializeJson(respDoc, response);
   if (!err) {
     if (respDoc.containsKey("water_level") && !respDoc["water_level"].isNull()) {
       currentWaterLevel = respDoc["water_level"].as<int>();
-      Serial.printf("[esp32motor] Synced live water level: %d%%\n", currentWaterLevel);
+      Serial.printf("[esp32motor] Synced live water level from server: %d%%\n", currentWaterLevel);
 
-      // Local failsafe: auto turn off motor if water level hits 100% and motor is running
+      // Server check & Local failsafe: auto turn off motor if water level hits 100% and motor is running
       if (currentWaterLevel >= 100 && motorRunning) {
         Serial.println("[esp32motor AUTO-SHUTOFF] Tank is 100% FULL! Turning OFF motor...");
         turnMotorOFF();
       }
     }
+
+    // Sync interval setting from server response
+    if (respDoc.containsKey("interval_seconds")) {
+      uint32_t sSec = respDoc["interval_seconds"].as<uint32_t>();
+      if (sSec >= 1 && sSec <= 86400) {
+        syncIntervalSeconds = sSec;
+        Serial.printf("[SERVER SYNC] Synced interval: %u sec\n", syncIntervalSeconds);
+      }
+    } else if (respDoc.containsKey("sync_interval")) {
+      uint32_t sSec = respDoc["sync_interval"].as<uint32_t>();
+      if (sSec >= 1 && sSec <= 86400) {
+        syncIntervalSeconds = sSec;
+        Serial.printf("[SERVER SYNC] Synced interval: %u sec\n", syncIntervalSeconds);
+      }
+    }
+
     if (respDoc.containsKey("command")) {
       String cmd = respDoc["command"].as<String>();
       cmd.trim();
@@ -293,7 +384,9 @@ void turnMotorON() {
   Serial.printf(">>> %d MS ELAPSED >>> SG90 Servo returned to default 90 degrees\n", holdDurationMs);
 
   // 4. Send telemetry sync to Django server AFTER physical servo sequence completes
-  sendMotorStatusToServer("motor turned ON (servo pulsed to " + String(angleON) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
+  if (WiFi.status() == WL_CONNECTED) {
+    sendMotorStatusToServer("motor turned ON (servo pulsed to " + String(angleON) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
+  }
 }
 
 void turnMotorOFF() {
@@ -318,7 +411,9 @@ void turnMotorOFF() {
   Serial.printf(">>> %d MS ELAPSED >>> SG90 Servo returned to default 90 degrees\n", holdDurationMs);
 
   // 4. Send telemetry sync to Django server AFTER physical servo sequence completes
-  sendMotorStatusToServer("motor turned OFF (servo pulsed to " + String(angleOFF) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
+  if (WiFi.status() == WL_CONNECTED) {
+    sendMotorStatusToServer("motor turned OFF (servo pulsed to " + String(angleOFF) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
+  }
 }
 
 void processCommand(const String &cmd) {
@@ -408,7 +503,7 @@ void setup() {
 
   Serial.println();
   Serial.println("==================================================");
-  Serial.println("ESP32 MOTOR PROGRAM (SG90 Servo @ Pin D13 + 4 Water Level LEDs)");
+  Serial.println("ESP32 MOTOR PROGRAM (SG90 Servo @ Pin D13 + ESP-NOW + 4 LEDs)");
   Serial.println("==================================================");
 
   // Initialize NVS Preferences storage to persist motor state, angles & hold delay across reboots
@@ -441,7 +536,9 @@ void setup() {
   Serial.printf("Servo attached to GPIO 13 (D13). Startup default angle: %d deg\n", currentAngle);
   Serial.printf("Configured Angles: ON=%d deg, OFF=%d deg | Hold Delay=%d ms\n", angleON, angleOFF, holdDurationMs);
   Serial.printf("Restored Motor State: Running=%s, Status=%s\n", motorRunning ? "true" : "false", motorStatus.c_str());
-  Serial.printf("LED Pins configured: 25%%=D25, 50%%=D26, 75%%=D27, 100%%=D14\n");
+
+  // Initialize ESP-NOW peer-to-peer radio communication
+  initEspNow32();
 
   // Connect to WiFi network
   if (connectWiFi()) {
@@ -455,9 +552,7 @@ void setup() {
 // MAIN LOOP
 //==================================================
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
-  }
+  bool isOnline = (WiFi.status() == WL_CONNECTED);
 
   // Continuously update LED display (0.5s blink on 25% LED when empty)
   updateWaterLevelLEDs();
@@ -466,10 +561,12 @@ void loop() {
   unsigned long now = millis();
   if (now - lastSyncTime >= 2000) {
     lastSyncTime = now;
-    sendMotorStatusToServer();
+    if (isOnline) {
+      sendMotorStatusToServer();
+    } else {
+      Serial.println("[OFFLINE MODE] Internet/Router unavailable. Listening for ESP-NOW radio signals from ESP8266 Tank sensor...");
+    }
   }
 
   delay(10);
 }
-
-

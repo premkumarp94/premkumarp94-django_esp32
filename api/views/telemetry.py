@@ -2,7 +2,7 @@ import json
 import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from api.models import TelemetryReading, DeviceCommand, DeviceLog
+from api.models import TelemetryReading, DeviceCommand, DeviceLog, get_system_setting, set_system_setting
 from api.views.status import get_esp32motor_status
 
 request_counter = 0
@@ -31,6 +31,25 @@ def telemetry(request):
             if motor_running is None and "motor_running" in sensor_values:
                 motor_running = sensor_values.get("motor_running")
             servo_angle = data.get("servo_angle") or sensor_values.get("servo_angle")
+            hold_ms = data.get("hold_ms") or sensor_values.get("hold_ms")
+            angle_on = data.get("angle_on") or sensor_values.get("angle_on")
+            angle_off = data.get("angle_off") or sensor_values.get("angle_off")
+
+            if hold_ms is not None:
+                try:
+                    set_system_setting("motor_hold_ms", str(int(hold_ms)))
+                except (ValueError, TypeError):
+                    pass
+            if angle_on is not None:
+                try:
+                    set_system_setting("motor_angle_on", str(int(angle_on)))
+                except (ValueError, TypeError):
+                    pass
+            if angle_off is not None:
+                try:
+                    set_system_setting("motor_angle_off", str(int(angle_off)))
+                except (ValueError, TypeError):
+                    pass
             
             ack = data.get("ack", "none")
             message = data.get("message", "none")
@@ -85,8 +104,11 @@ def telemetry(request):
             # Get ACTUAL motor running status from esp32motor.ino (stored in DB)
             motor_info = get_esp32motor_status()
             real_motor_running = motor_info["motor_running"]
+            if "motor" in device_id.lower() and motor_running is not None:
+                real_motor_running = bool(motor_running)
 
             # AUTOMATIC MOTOR OFF TRIGGER ON 100% WATER LEVEL:
+            # At ANY time server checks water level & motor status. If water level is 100% and motor is running, trigger MOTOR_OFF
             if latest_water_lvl is not None and latest_water_lvl >= 100 and real_motor_running:
                 has_pending_off = DeviceCommand.objects.filter(
                     device_id__in=["esp32motor", "esp32_motor_01"],
@@ -100,7 +122,7 @@ def telemetry(request):
                     )
                     DeviceLog.objects.create(
                         device_id="SERVER_AUTO",
-                        message="[AUTO-SHUTOFF] Tank Full (100%) detected! Automatically queued MOTOR_OFF for esp32motor."
+                        message="[AUTO-SHUTOFF] Tank Full (100%) detected on server! Automatically queued MOTOR_OFF for esp32motor."
                     )
                     print(f"  [AUTO-SHUTOFF] Tank Full (100%). Queued MOTOR_OFF command for esp32motor.")
 
@@ -117,12 +139,24 @@ def telemetry(request):
             else:
                 server_cmd = ""
 
+            # Direct Failsafe: if water level is 100% and motor is running, ensure server_cmd is MOTOR_OFF when motor device calls telemetry
+            if latest_water_lvl is not None and latest_water_lvl >= 100 and real_motor_running:
+                if "motor" in device_id.lower() and not server_cmd:
+                    server_cmd = "MOTOR_OFF"
+
+            # Get current active sync interval setting from DB
+            sync_interval_str = get_system_setting("sync_interval", "60")
+            try:
+                sync_interval = int(sync_interval_str)
+            except ValueError:
+                sync_interval = 60
+
             # Compute IST time (UTC+5:30) formatted as YYYYMMDD:HH:MM:SS
             ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
             now_ist = datetime.datetime.now(ist_offset)
             ist_time_str = now_ist.strftime("%Y%m%d:%H:%M:%S")
 
-            print(f"  => Response to {device_id}: Water Level={latest_water_lvl}% | Motor Running={real_motor_running} (From esp32motor) | IST={ist_time_str}")
+            print(f"  => Response to {device_id}: Water Level={latest_water_lvl}% | Motor Running={real_motor_running} | Sync Interval={sync_interval}s | IST={ist_time_str}")
             
             return JsonResponse({
                 "status": "success",
@@ -131,6 +165,9 @@ def telemetry(request):
                 "motor_running": real_motor_running,
                 "motor_status": motor_info["motor_status"],
                 "servo_angle": motor_info["servo_angle"],
+                "interval_seconds": sync_interval,
+                "sleep_seconds": sync_interval,
+                "sync_interval": sync_interval,
                 "ist_time": ist_time_str
             })
             

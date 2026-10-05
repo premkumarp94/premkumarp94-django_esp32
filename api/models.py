@@ -54,3 +54,31 @@ class DeviceLog(models.Model):
 
     def __str__(self):
         return f"{self.device_id} - {self.message} at {self.timestamp}"
+
+
+class SystemSetting(models.Model):
+    key = models.CharField(max_length=50, unique=True, db_index=True)
+    value = models.CharField(max_length=255)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['key']
+
+    def __str__(self):
+        return f"{self.key} = {self.value}"
+
+
+def get_system_setting(key, default="60"):
+    try:
+        setting = SystemSetting.objects.filter(key=key).first()
+        return setting.value if setting else default
+    except Exception:
+        return default
+
+
+def set_system_setting(key, value):
+    try:
+        SystemSetting.objects.update_or_create(key=key, defaults={"value": str(value)})
+    except Exception as e:
+        print(f"Error saving system setting {key}: {e}")
+

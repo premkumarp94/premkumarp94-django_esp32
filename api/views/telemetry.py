@@ -25,6 +25,8 @@ def telemetry(request):
             probe_75 = sensor_values.get("probe_75")
             probe_100 = sensor_values.get("probe_100")
             
+            probe_read_ago_sec = sensor_values.get("probe_read_ago_sec") or data.get("probe_read_ago_sec")
+            
             # Motor status values reported by esp32motor
             motor_status = data.get("motor_status") or sensor_values.get("motor_status")
             motor_running = data.get("motor_running")
@@ -71,6 +73,7 @@ def telemetry(request):
                     motor_status=str(motor_status) if motor_status is not None else None,
                     motor_running=bool(motor_running) if motor_running is not None else None,
                     servo_angle=int(servo_angle) if servo_angle is not None else None,
+                    probe_read_ago_sec=int(probe_read_ago_sec) if probe_read_ago_sec is not None else None,
                 )
 
             # Auto-prune old readings periodically to prevent unbounded DB growth

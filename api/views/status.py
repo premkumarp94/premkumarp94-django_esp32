@@ -1,11 +1,45 @@
 import datetime
-from django.utils import timezone
-from django.http import JsonResponse
 from django.shortcuts import render
+from django.http import JsonResponse
+from django.utils import timezone
 from api.models import TelemetryReading, DeviceCommand, DeviceLog, get_system_setting
 
-def format_duration(seconds):
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
+def to_ist(dt):
+    if not dt:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, datetime.timezone.utc)
+    return dt.astimezone(IST)
+
+def format_ist(dt, fmt='%Y-%m-%d %I:%M:%S %p IST'):
+    if not dt:
+        return "Never"
+    dt_ist = to_ist(dt)
+    return dt_ist.strftime(fmt)
+
+def format_relative_time(seconds):
+    if seconds is None or seconds < 0:
+        return "Never"
+    seconds = int(round(seconds))
+    if seconds < 10:
+        return "Just now"
+    if seconds < 60:
+        return f"{seconds}s ago"
+    m = seconds // 60
+    s = seconds % 60
+    if m < 60:
+        return f"{m}m {s:02d}s ago" if s > 0 else f"{m}m ago"
+    h = m // 60
+    m_rem = m % 60
+    if h < 24:
+        return f"{h}h {m_rem:02d}m ago" if m_rem > 0 else f"{h}h ago"
+    d = h // 24
+    return f"{d}d ago"
+
+
+def format_duration(seconds):
     if seconds is None or seconds < 0:
         return "--"
     seconds = int(round(seconds))
@@ -68,7 +102,7 @@ def get_esp32motor_status():
             "hold_ms": hold_ms,
             "hold_sec": hold_sec,
             "device_id": reading.device_id,
-            "timestamp": reading.timestamp,
+            "timestamp": format_ist(reading.timestamp),
             "has_pending_command": pending_cmd is not None,
             "pending_command": pending_cmd.command if pending_cmd else ""
         }
@@ -88,7 +122,6 @@ def get_esp32motor_status():
         "has_pending_command": pending_cmd is not None,
         "pending_command": pending_cmd.command if pending_cmd else ""
     }
-
 
 
 def analyze_tank_timings(readings, now=None):
@@ -270,7 +303,6 @@ def analyze_tank_timings(readings, now=None):
     time_spent_at_75 = (now - active_75_start).total_seconds() if active_75_start else 0
 
     # Get ACTUAL motor status reported by esp32motor.ino
-    # SERVER DOES NOT ASSUME MOTOR STATUS!
     is_actively_filling = motor_info["motor_running"]
     servo_angle = motor_info["servo_angle"]
 
@@ -302,9 +334,7 @@ def analyze_tank_timings(readings, now=None):
         result["eta_text"] = f"~{format_duration(est_remaining)} until 100%"
 
         target_time = now + datetime.timedelta(seconds=est_remaining)
-        ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-        target_ist = target_time.astimezone(ist_offset)
-        result["eta_target_time"] = target_ist.strftime("%I:%M:%S %p")
+        result["eta_target_time"] = format_ist(target_time, "%I:%M:%S %p IST")
     else:
         result["is_filling"] = False
         result["motor_detected"] = False
@@ -342,18 +372,14 @@ def status(request):
             if seconds_ago < 0:
                 seconds_ago = 0
 
-            if seconds_ago < 10:
-                last_seen_text = "Just now"
-            elif seconds_ago < 60:
-                last_seen_text = f"{seconds_ago}s ago"
-            elif seconds_ago < 3600:
-                last_seen_text = f"{seconds_ago // 60}m ago"
-            elif seconds_ago < 86400:
-                last_seen_text = f"{seconds_ago // 3600}h ago"
-            else:
-                last_seen_text = f"{seconds_ago // 86400}d ago"
+            probe_read_ago_sec = seconds_ago
+            if reading.probe_read_ago_sec is not None:
+                probe_read_ago_sec += reading.probe_read_ago_sec
 
-            # Server listens for any time and lets board sync status/response on its own schedule
+            last_seen_text = format_relative_time(seconds_ago)
+            probe_read_text = format_relative_time(probe_read_ago_sec)
+            timestamp_ist_str = format_ist(reading.timestamp)
+
             connection_status = "online"
 
             devices_data[dev_id] = {
@@ -369,10 +395,12 @@ def status(request):
                 "motor_status": reading.motor_status,
                 "motor_running": reading.motor_running,
                 "servo_angle": reading.servo_angle,
-                "timestamp": reading.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                "timestamp": timestamp_ist_str,
                 "iso_timestamp": reading.timestamp.isoformat(),
                 "seconds_ago": seconds_ago,
                 "last_seen_text": last_seen_text,
+                "probe_read_ago_sec": probe_read_ago_sec,
+                "probe_read_text": probe_read_text,
                 "connection_status": connection_status
             }
         else:
@@ -393,6 +421,8 @@ def status(request):
                 "iso_timestamp": None,
                 "seconds_ago": None,
                 "last_seen_text": "Never",
+                "probe_read_ago_sec": None,
+                "probe_read_text": "Never",
                 "connection_status": "offline"
             }
 
@@ -415,7 +445,7 @@ def status(request):
         {
             "device_id": log.device_id,
             "message": log.message,
-            "timestamp": log.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            "timestamp": format_ist(log.timestamp, '%I:%M:%S %p IST')
         }
         for log in latest_logs
     ]
@@ -461,6 +491,7 @@ def status(request):
         "water_level": tank_latest.water_level if tank_latest else None,
         "temperature": tank_latest.temperature if tank_latest else None,
         "humidity": tank_latest.humidity if tank_latest else None,
-        "timestamp": tank_latest.timestamp.strftime('%Y-%m-%d %H:%M:%S') if tank_latest else None,
+        "timestamp": format_ist(tank_latest.timestamp) if tank_latest else None,
     })
+
 

@@ -340,8 +340,8 @@
         /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
         }
 
         .stat-box {
@@ -747,18 +747,31 @@
                 </div>
             </div>
 
-            <!-- Stats with LAST SEEN and STATUS -->
+            <!-- Stats with LAST PROBE READ, LAST TELEMETRY SYNC and STATUS -->
             <div class="stats-grid">
-                <!-- LAST SEEN STAT BOX -->
-                <div class="stat-box" style="border-color: rgba(56, 189, 248, 0.2);">
+                <!-- LAST PROBE READ STAT BOX -->
+                <div class="stat-box" style="border-color: rgba(56, 189, 248, 0.25); background: rgba(56, 189, 248, 0.04);">
                     <div class="stat-label">
-                        <span>Last Seen</span>
+                        <span>Last Probe Read</span>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
                             <circle cx="12" cy="12" r="10"></circle>
                             <polyline points="12 6 12 12 16 14"></polyline>
                         </svg>
                     </div>
-                    <div class="stat-val" style="color: #38bdf8;" id="last-seen-val">
+                    <div class="stat-val" style="color: #38bdf8;" id="probe-read-val">
+                        {{ device_01.probe_read_text|default:"Never" }}
+                    </div>
+                </div>
+
+                <!-- TELEMETRY SYNC STAT BOX -->
+                <div class="stat-box">
+                    <div class="stat-label">
+                        <span>Telemetry Sync</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2">
+                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                        </svg>
+                    </div>
+                    <div class="stat-val" style="color: #f8fafc;" id="last-seen-val">
                         {{ device_01.last_seen_text|default:"Never" }}
                     </div>
                 </div>
@@ -778,7 +791,7 @@
             </div>
 
             <div class="card-footer">
-                <span>Last Telemetry Sync:</span>
+                <span>Last Telemetry Sync (IST):</span>
                 <span class="timestamp-text" id="time-esp8266_device_01">{{ device_01.timestamp }}</span>
             </div>
         </div>
@@ -1109,6 +1122,7 @@
 
     const refreshBtn = document.getElementById('refresh-trigger');
     let lastSeenTimestampMs = null;
+    let probeReadTimestampMs = null;
     let liveEtaSeconds = null;
 
     // Format seconds into human readable duration (e.g. 3m 45s)
@@ -1132,6 +1146,13 @@
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
         if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
         return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    function updateProbeReadStatus(seconds) {
+        const probeValEl = document.getElementById('probe-read-val');
+        if (probeValEl) {
+            probeValEl.textContent = formatRelativeTime(seconds);
+        }
     }
 
     // Update connection status pills & dots
@@ -1326,6 +1347,11 @@
                             updateConnectionStatus(dev1.seconds_ago);
                         }
 
+                        if (dev1.probe_read_ago_sec !== undefined && dev1.probe_read_ago_sec !== null) {
+                            probeReadTimestampMs = Date.now() - (dev1.probe_read_ago_sec * 1000);
+                            updateProbeReadStatus(dev1.probe_read_ago_sec);
+                        }
+
                         // Update Fill Analytics
                         if (data.fill_analytics) {
                             updateFillAnalytics(data.fill_analytics, dev1.water_level);
@@ -1420,11 +1446,16 @@
         }
     }
 
-    // Live 1-second ticker to update 'Last Seen' and decrement ETA smoothly
+    // Live 1-second ticker to update 'Last Seen', 'Last Probe Read' and decrement ETA smoothly
     setInterval(() => {
         if (lastSeenTimestampMs !== null) {
             const elapsedSeconds = Math.max(0, (Date.now() - lastSeenTimestampMs) / 1000);
             updateConnectionStatus(elapsedSeconds);
+        }
+
+        if (probeReadTimestampMs !== null) {
+            const elapsedProbeSec = Math.max(0, (Date.now() - probeReadTimestampMs) / 1000);
+            updateProbeReadStatus(elapsedProbeSec);
         }
 
         // Decrement active ETA countdown

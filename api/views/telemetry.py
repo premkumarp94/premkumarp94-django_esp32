@@ -101,6 +101,8 @@ def telemetry(request):
                     device_id=device_id,
                     message=message
                 )
+                if "off" in message.lower() or "shutoff" in message.lower() or "limit" in message.lower() or "full" in message.lower():
+                    set_system_setting("last_motor_off_reason", message)
             
             print(f"\n[Django Telemetry] Device: {device_id}")
             if water_level is not None:
@@ -137,6 +139,7 @@ def telemetry(request):
                     ).exists()
                     if not has_pending_off:
                         reason = "[AUTO-SHUTOFF] Tank Full (100%) detected on server! Turned OFF motor." if is_100_full else f"[AUTO-SHUTOFF] Motor reached maximum run time limit ({max_run_min} min)! Turned OFF motor."
+                        set_system_setting("last_motor_off_reason", reason)
                         DeviceCommand.objects.create(
                             device_id="esp32motor",
                             command="MOTOR_OFF"

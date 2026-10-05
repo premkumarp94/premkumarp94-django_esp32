@@ -87,42 +87,24 @@ class TelemetryAndMotorTestCase(TestCase):
         self.assertEqual(get_system_setting("motor_angle_on"), "40")
         self.assertEqual(get_system_setting("motor_angle_off"), "140")
 
-    def test_probe_read_ago_sec_handling(self):
-        # 1. Post telemetry with probe_read_ago_sec = 120 (sampled 2 minutes before HTTP sync)
+    def test_server_calculated_sync_probe_and_online(self):
+        # 1. Post telemetry with water level probe reading
         self.client.post(
             '/api/telemetry/',
             data=json.dumps({
                 "id": "esp8266_device_01",
                 "sensor values": {
                     "water_level": 75,
-                    "probe_read_ago_sec": 120
+                    "probe_75": True
                 }
             }),
             content_type='application/json'
         )
-
-        reading = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
-        self.assertEqual(reading.probe_read_ago_sec, 120)
 
         status_resp = self.client.get('/api/status/?format=json')
         dev_data = status_resp.json()["devices"]["esp8266_device_01"]
-        self.assertGreaterEqual(dev_data["probe_read_ago_sec"], 120)
-        self.assertNotEqual(dev_data["probe_read_text"], "Never")
-
-        # 2. Post telemetry with probe_read_ago_sec = 0 (sampled at same time as POST)
-        self.client.post(
-            '/api/telemetry/',
-            data=json.dumps({
-                "id": "esp8266_device_01",
-                "sensor values": {
-                    "water_level": 75,
-                    "probe_read_ago_sec": 0
-                }
-            }),
-            content_type='application/json'
-        )
-        reading2 = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
-        self.assertEqual(reading2.probe_read_ago_sec, 0)
+        self.assertEqual(dev_data["probe_read_text"], "Just now")
+        self.assertEqual(dev_data["last_seen_text"], "Just now")
 
     def test_max_run_min_setting_and_auto_shutoff(self):
         # 1. Default max run min should be 30
@@ -139,6 +121,31 @@ class TelemetryAndMotorTestCase(TestCase):
 
         status_resp = self.client.get('/api/status/?format=json')
         self.assertEqual(status_resp.json()["motor_info"]["max_run_min"], 15)
+
+    def test_last_motor_off_reason_persistence(self):
+        # 1. Post MOTOR_OFF command
+        self.client.post(
+            '/api/command/',
+            data=json.dumps({"device_id": "esp32motor", "command": "MOTOR_OFF"}),
+            content_type='application/json'
+        )
+        self.assertIn("Turn OFF requested", get_system_setting("last_motor_off_reason"))
+
+        # 2. Telemetry with explicit auto-shutoff message from esp32motor
+        self.client.post(
+            '/api/telemetry/',
+            data=json.dumps({
+                "id": "esp32motor",
+                "motor_running": False,
+                "message": "[AUTO-SHUTOFF] Reached maximum run time limit (30 min)"
+            }),
+            content_type='application/json'
+        )
+        self.assertIn("maximum run time limit", get_system_setting("last_motor_off_reason"))
+
+        status_resp = self.client.get('/api/status/?format=json')
+        self.assertIn("maximum run time limit", status_resp.json()["motor_info"]["last_off_reason"])
+
 
 
 

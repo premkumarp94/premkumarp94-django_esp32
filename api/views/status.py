@@ -89,6 +89,7 @@ def get_esp32motor_status():
     except ValueError:
         max_run_min = 30
 
+    last_off_reason = get_system_setting("last_motor_off_reason", "None")
     hold_sec = round(hold_ms / 1000.0, 2)
 
     if reading:
@@ -135,6 +136,7 @@ def get_esp32motor_status():
             "max_run_sec": max_run_min * 60,
             "motor_run_seconds": motor_run_seconds,
             "motor_run_text": format_duration(motor_run_seconds),
+            "last_off_reason": last_off_reason,
             "device_id": reading.device_id,
             "timestamp": format_ist(reading.timestamp),
             "has_pending_command": pending_cmd is not None,
@@ -155,6 +157,7 @@ def get_esp32motor_status():
         "max_run_sec": max_run_min * 60,
         "motor_run_seconds": 0,
         "motor_run_text": "0s",
+        "last_off_reason": last_off_reason,
         "device_id": "esp32motor",
         "timestamp": None,
         "has_pending_command": pending_cmd is not None,
@@ -410,9 +413,18 @@ def status(request):
             if seconds_ago < 0:
                 seconds_ago = 0
 
-            probe_read_ago_sec = seconds_ago
-            if reading.probe_read_ago_sec is not None:
-                probe_read_ago_sec += reading.probe_read_ago_sec
+            # Calculate last sync probe from server DB timestamp of latest water probe reading
+            probe_reading = TelemetryReading.objects.filter(
+                device_id=dev_id,
+                water_level__isnull=False
+            ).order_by('-timestamp').first()
+
+            if probe_reading:
+                probe_read_ago_sec = int((now - probe_reading.timestamp).total_seconds())
+                if probe_read_ago_sec < 0:
+                    probe_read_ago_sec = 0
+            else:
+                probe_read_ago_sec = seconds_ago
 
             last_seen_text = format_relative_time(seconds_ago)
             probe_read_text = format_relative_time(probe_read_ago_sec)

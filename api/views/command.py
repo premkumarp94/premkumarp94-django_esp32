@@ -80,8 +80,10 @@ def send_command(request):
 
             if cmd_upper.startswith("MOTOR_ON") or cmd_upper in ["ON", "START"]:
                 log_msg = "Motor ON requested from mobile / web UI"
+                set_system_setting("last_motor_off_reason", log_msg)
             elif cmd_upper.startswith("MOTOR_OFF") or cmd_upper in ["OFF", "STOP"]:
-                log_msg = "Motor OFF requested from mobile / web UI"
+                log_msg = "Turn OFF requested from mobile / web UI"
+                set_system_setting("last_motor_off_reason", log_msg)
             elif cmd_upper.startswith("INTERVAL:") or cmd_upper.startswith("SET_INTERVAL:"):
                 val = cmd_upper.split(":")[-1]
                 log_msg = f"Reading interval set to {val}s"

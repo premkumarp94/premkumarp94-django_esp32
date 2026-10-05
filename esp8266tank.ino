@@ -411,13 +411,6 @@ String buildTelemetry(const String &ack, const String &message, int waterLevel) 
   sensor["probe_75"] = probe75Detected;
   sensor["probe_100"] = probe100Detected;
 
-  // Calculate elapsed seconds since physical water probes were sampled
-  unsigned long probeAgeSec = 0;
-  if (lastProbeReadTime > 0 && millis() >= lastProbeReadTime) {
-    probeAgeSec = (millis() - lastProbeReadTime) / 1000;
-  }
-  sensor["probe_read_ago_sec"] = probeAgeSec;
-
   doc["ack"] = ack;
 
   doc["message"] = message;

@@ -747,12 +747,12 @@
                 </div>
             </div>
 
-            <!-- Stats with LAST PROBE READ, LAST TELEMETRY SYNC and STATUS -->
+            <!-- Stats with LAST SYNC PROBE, LAST SYNC ONLINE and STATUS -->
             <div class="stats-grid">
-                <!-- LAST PROBE READ STAT BOX -->
+                <!-- LAST SYNC PROBE STAT BOX -->
                 <div class="stat-box" style="border-color: rgba(56, 189, 248, 0.25); background: rgba(56, 189, 248, 0.04);">
                     <div class="stat-label">
-                        <span>Last Probe Read</span>
+                        <span>Last Sync Probe</span>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
                             <circle cx="12" cy="12" r="10"></circle>
                             <polyline points="12 6 12 12 16 14"></polyline>
@@ -763,10 +763,10 @@
                     </div>
                 </div>
 
-                <!-- TELEMETRY SYNC STAT BOX -->
+                <!-- LAST SYNC ONLINE STAT BOX -->
                 <div class="stat-box">
                     <div class="stat-label">
-                        <span>Telemetry Sync</span>
+                        <span>Last Sync Online</span>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2">
                             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
                         </svg>
@@ -791,7 +791,7 @@
             </div>
 
             <div class="card-footer">
-                <span>Last Telemetry Sync (IST):</span>
+                <span>Last Sync Online (IST):</span>
                 <span class="timestamp-text" id="time-esp8266_device_01">{{ device_01.timestamp }}</span>
             </div>
         </div>
@@ -907,6 +907,14 @@
                     </div>
                     <div style="font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 800; color: #34d399;" id="motor-info-angle-text">
                         {{ motor_info.servo_angle|default:"90" }}°
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
+                        Last Motor OFF Reason
+                    </div>
+                    <div style="font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 700; color: #f87171;" id="motor-info-reason-text">
+                        {{ motor_info.last_off_reason|default:"None" }}
                     </div>
                 </div>
             </div>
@@ -1381,6 +1389,7 @@
                         if (data.motor_info) {
                             const statusTextEl = document.getElementById('motor-info-status-text');
                             const angleTextEl = document.getElementById('motor-info-angle-text');
+                            const reasonTextEl = document.getElementById('motor-info-reason-text');
                             const cmdStatusEl = document.getElementById('motor-cmd-status');
 
                             if (statusTextEl) {
@@ -1392,6 +1401,9 @@
                             }
                             if (angleTextEl) {
                                 angleTextEl.textContent = (data.motor_info.servo_angle !== undefined && data.motor_info.servo_angle !== null) ? `${data.motor_info.servo_angle}°` : '90°';
+                            }
+                            if (reasonTextEl && data.motor_info.last_off_reason) {
+                                reasonTextEl.textContent = data.motor_info.last_off_reason;
                             }
 
                             // Sync servo angle, return hold duration & max run limit input fields if not focused

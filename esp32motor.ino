@@ -68,7 +68,7 @@ bool espNowInitialized = false;
 uint8_t broadcastMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // Forward declarations
-void turnMotorOFF();
+void turnMotorOFF(const String &reason = "");
 void turnMotorON();
 void processCommand(const String &cmd);
 void updateWaterLevelLEDs();
@@ -408,7 +408,7 @@ void turnMotorON() {
   }
 }
 
-void turnMotorOFF() {
+void turnMotorOFF(const String &reason) {
   Serial.printf("\n>>> TURNING MOTOR OFF >>> Rotating SG90 Servo to %d degrees for %d ms\n", angleOFF, holdDurationMs);
   currentAngle   = angleOFF;
   motorRunning   = false;
@@ -432,7 +432,8 @@ void turnMotorOFF() {
 
   // 4. Send telemetry sync to Django server AFTER physical servo sequence completes
   if (WiFi.status() == WL_CONNECTED) {
-    sendMotorStatusToServer("motor turned OFF (servo pulsed to " + String(angleOFF) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
+    String msg = (reason.length() > 0) ? reason : ("motor turned OFF (servo pulsed to " + String(angleOFF) + " deg for " + String(holdDurationMs) + "ms, returned to 90 deg)");
+    sendMotorStatusToServer(msg);
   }
 }
 
@@ -592,7 +593,7 @@ void loop() {
   // If water level reaches 100% AND motor is running -> TURN OFF MOTOR IMMEDIATELY
   if (currentWaterLevel >= 100 && motorRunning) {
     Serial.println("\n[LOOP AUTO-SHUTOFF] Tank 100% FULL detected! Turning OFF motor immediately...");
-    turnMotorOFF();
+    turnMotorOFF("[AUTO-SHUTOFF] Tank Full (100%) detected on ESP32");
   }
 
   // LOCAL HARDWARE AUTO-SHUTOFF FAILSAFE TIMER:
@@ -602,7 +603,7 @@ void loop() {
     unsigned long limitMs   = (unsigned long)maxRunMin * 60 * 1000;
     if (runTimeMs >= limitMs) {
       Serial.printf("\n[LOCAL HARDWARE AUTO-SHUTOFF] Motor continuous run limit (%d min) reached! Turning OFF motor locally...\n", maxRunMin);
-      turnMotorOFF();
+      turnMotorOFF("[AUTO-SHUTOFF] Reached maximum run time limit (" + String(maxRunMin) + " min)");
     }
   }
 

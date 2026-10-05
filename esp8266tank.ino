@@ -58,6 +58,7 @@ bool motorRunning = false;
 
 // Forward declarations
 int readWaterLevel();
+void sendEspNowTelemetry(int waterLevel);
 
 void initEspNow() {
   if (espNowInitialized) return;
@@ -75,9 +76,20 @@ void initEspNow() {
         memcpy(&msg, incomingData, sizeof(msg));
         Serial.printf("[ESP-NOW RX] Message from %s: Motor Running=%s, Interval=%u\n",
                       msg.device_id, msg.motor_running ? "YES" : "NO", msg.interval_sec);
+
+        bool motorChanged = (msg.motor_running != motorRunning);
+        bool intervalChanged = (msg.interval_sec >= 1 && msg.interval_sec <= 86400 && msg.interval_sec != readingIntervalSeconds);
+
         motorRunning = msg.motor_running;
         if (msg.interval_sec >= 1 && msg.interval_sec <= 86400) {
           readingIntervalSeconds = msg.interval_sec;
+        }
+
+        if (motorChanged || intervalChanged) {
+          Serial.println("[ESP-NOW RX] Motor status or Probe interval changed! Cancelling current delay & sampling probes immediately.");
+          lastProbeReadTime = millis();
+          cachedWaterLevel = readWaterLevel();
+          sendEspNowTelemetry(cachedWaterLevel);
         }
       }
     });
@@ -161,13 +173,12 @@ bool connectWiFi() {
   }
 
   Serial.println();
-  Serial.print("Connecting WiFi");
+  Serial.printf("[WIFI CHECK] Primary Home WiFi (%s)... Attempting connection...\n", ssid);
 
   WiFi.begin(ssid, password);
 
   int attempts = 0;
-
-  while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 10) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -176,14 +187,12 @@ bool connectWiFi() {
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("Connected. IP: ");
+    Serial.print("[WIFI CONNECTED] Primary Home WiFi Active! IP: ");
     Serial.println(WiFi.localIP());
-
     return true;
   }
 
-  Serial.println("WiFi connection failed (Offline ESP-NOW mode active).");
-
+  Serial.println("[OFFLINE MODE] Home WiFi / Internet unavailable. Operating in ESP-NOW local radio mode.");
   return false;
 }
 
@@ -466,30 +475,30 @@ bool sendTelemetry(int waterLevel) {
   StaticJsonDocument<512> respDoc;
   DeserializationError err = deserializeJson(respDoc, response);
   if (!err) {
+    bool newMotorRunning = motorRunning;
     if (respDoc.containsKey("motor_running")) {
-      motorRunning = respDoc["motor_running"].as<bool>();
+      newMotorRunning = respDoc["motor_running"].as<bool>();
     } else if (respDoc.containsKey("is_filling")) {
-      motorRunning = respDoc["is_filling"].as<bool>();
+      newMotorRunning = respDoc["is_filling"].as<bool>();
     }
+
+    uint32_t newIntervalSec = readingIntervalSeconds;
 
     // Sync reading interval maintained from browser setting
     if (respDoc.containsKey("interval_seconds")) {
       uint32_t sSec = respDoc["interval_seconds"].as<uint32_t>();
       if (sSec >= 1 && sSec <= 86400) {
-        readingIntervalSeconds = sSec;
-        Serial.printf("[BROWSER SYNC] Synced probe reading interval from server: %u sec\n", readingIntervalSeconds);
+        newIntervalSec = sSec;
       }
     } else if (respDoc.containsKey("sync_interval")) {
       uint32_t sSec = respDoc["sync_interval"].as<uint32_t>();
       if (sSec >= 1 && sSec <= 86400) {
-        readingIntervalSeconds = sSec;
-        Serial.printf("[BROWSER SYNC] Synced probe reading interval from server: %u sec\n", readingIntervalSeconds);
+        newIntervalSec = sSec;
       }
     } else if (respDoc.containsKey("sleep_seconds")) {
       uint32_t sSec = respDoc["sleep_seconds"].as<uint32_t>();
       if (sSec >= 1 && sSec <= 86400) {
-        readingIntervalSeconds = sSec;
-        Serial.printf("[BROWSER SYNC] Synced probe reading interval from server: %u sec\n", readingIntervalSeconds);
+        newIntervalSec = sSec;
       }
     }
 
@@ -501,10 +510,23 @@ bool sendTelemetry(int waterLevel) {
       if (cmd.startsWith("INTERVAL:") || cmd.startsWith("SLEEP:") || cmd.startsWith("DEEPSLEEP:")) {
         int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
         if (val >= 1 && val <= 86400) {
-          readingIntervalSeconds = (uint32_t)val;
-          Serial.printf("[COMMAND SYNC] Updated probe reading interval to %u sec\n", readingIntervalSeconds);
+          newIntervalSec = (uint32_t)val;
         }
       }
+    }
+
+    bool motorChanged = (newMotorRunning != motorRunning);
+    bool intervalChanged = (newIntervalSec != readingIntervalSeconds);
+
+    motorRunning = newMotorRunning;
+    readingIntervalSeconds = newIntervalSec;
+
+    if (motorChanged || intervalChanged) {
+      Serial.printf("[HTTP SYNC] Motor status (%s) or Probe interval (%u sec) changed! Cancelling current delay & sampling probes immediately.\n",
+                    motorRunning ? "ON" : "OFF", readingIntervalSeconds);
+      lastProbeReadTime = millis();
+      cachedWaterLevel = readWaterLevel();
+      sendEspNowTelemetry(cachedWaterLevel);
     }
   }
 
@@ -592,9 +614,12 @@ void loop() {
 
     bool isOnline = connectWiFi();
     if (isOnline) {
-      sendTelemetry(cachedWaterLevel);
+      bool httpSuccess = sendTelemetry(cachedWaterLevel);
+      if (!httpSuccess) {
+        Serial.println("[INTERNET CHECK] Home WiFi connected, but HTTP server ping failed. Operating in ESP-NOW local mode until internet returns.");
+      }
     } else {
-      Serial.println("[OFFLINE MODE] Router/Internet unavailable. Operating in ESP-NOW local radio mode with ESP32 Motor.");
+      Serial.println("[OFFLINE MODE] Home WiFi / Internet unavailable. Operating in ESP-NOW local radio mode with ESP32 Motor.");
     }
 
     if (iterationCount == 0) {

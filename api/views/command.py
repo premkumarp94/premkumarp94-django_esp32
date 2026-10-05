@@ -69,8 +69,36 @@ def send_command(request):
                 except ValueError:
                     pass
 
+            elif cmd_upper.startswith("SET_MAX_RUN_MIN:") or cmd_upper.startswith("MAX_RUN_MIN:"):
+                try:
+                    val = int(cmd_upper.split(":")[-1])
+                    if 1 <= val <= 1440:
+                        set_system_setting("motor_max_run_min", str(val))
+                        print(f"[SERVER SYSTEM SETTING] Saved motor_max_run_min = {val} min to database")
+                except ValueError:
+                    pass
+
+            if cmd_upper.startswith("MOTOR_ON") or cmd_upper in ["ON", "START"]:
+                log_msg = "Motor ON requested from mobile / web UI"
+            elif cmd_upper.startswith("MOTOR_OFF") or cmd_upper in ["OFF", "STOP"]:
+                log_msg = "Motor OFF requested from mobile / web UI"
+            elif cmd_upper.startswith("INTERVAL:") or cmd_upper.startswith("SET_INTERVAL:"):
+                val = cmd_upper.split(":")[-1]
+                log_msg = f"Reading interval set to {val}s"
+            elif cmd_upper.startswith("SET_HOLD_SEC:") or cmd_upper.startswith("HOLD_SEC:"):
+                sec = cmd_upper.split(":")[-1]
+                log_msg = f"Motor return delay set to {sec}s"
+            elif cmd_upper.startswith("SET_MAX_RUN_MIN:") or cmd_upper.startswith("MAX_RUN_MIN:"):
+                val = cmd_upper.split(":")[-1]
+                log_msg = f"Auto turn OFF max run limit set to {val} min"
+            elif cmd_upper.startswith("SET_ANGLES:"):
+                angles = cmd_upper.split(":")[-1]
+                log_msg = f"Motor angles updated ({angles})"
+            else:
+                log_msg = f"Command queued: {command}"
+
             DeviceCommand.objects.create(device_id=device_id, command=command)
-            DeviceLog.objects.create(device_id=device_id, message=f"Queued command: {command}")
+            DeviceLog.objects.create(device_id=device_id, message=log_msg)
 
             return JsonResponse({"status": "success", "message": f"Command '{command}' sent to {device_id}."})
         except Exception as e:

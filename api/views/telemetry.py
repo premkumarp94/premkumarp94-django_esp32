@@ -88,8 +88,15 @@ def telemetry(request):
                 except Exception as prune_err:
                     print(f"Telemetry pruning warning: {prune_err}")
 
-            # Save device log
-            if message and message not in ["none", "", "device_normal_operation"]:
+            # Save device log ONLY for meaningful motor status / config events
+            routine_messages = {
+                "none", "", "ping", "esp32motor telemetry sync",
+                "esp8266 booted normally", "came to first iteration",
+                "esp32motor booted - default angle set to 90 deg",
+                "esp32motor booted - state, angles & hold delay restored from flash",
+                "device_normal_operation"
+            }
+            if message and message.strip().lower() not in routine_messages:
                 DeviceLog.objects.create(
                     device_id=device_id,
                     message=message
@@ -112,24 +119,33 @@ def telemetry(request):
             if "motor" in device_id.lower() and motor_running is not None:
                 real_motor_running = bool(motor_running)
 
-            # AUTOMATIC MOTOR OFF TRIGGER ON 100% WATER LEVEL:
-            # At ANY time server checks water level & motor status. If water level is 100% and motor is running, trigger MOTOR_OFF
-            if latest_water_lvl is not None and latest_water_lvl >= 100 and real_motor_running:
-                has_pending_off = DeviceCommand.objects.filter(
-                    device_id__in=["esp32motor", "esp32_motor_01"],
-                    command__icontains="OFF",
-                    is_executed=False
-                ).exists()
-                if not has_pending_off:
-                    DeviceCommand.objects.create(
-                        device_id="esp32motor",
-                        command="MOTOR_OFF"
-                    )
-                    DeviceLog.objects.create(
-                        device_id="SERVER_AUTO",
-                        message="[AUTO-SHUTOFF] Tank Full (100%) detected on server! Automatically queued MOTOR_OFF for esp32motor."
-                    )
-                    print(f"  [AUTO-SHUTOFF] Tank Full (100%). Queued MOTOR_OFF command for esp32motor.")
+            # AUTOMATIC MOTOR OFF TRIGGERS:
+            # 1. Tank full (100% water level)
+            # 2. Maximum continuous run time limit reached (default 30 min)
+            max_run_min = motor_info.get("max_run_min", 30)
+            motor_run_seconds = motor_info.get("motor_run_seconds", 0)
+
+            if real_motor_running:
+                is_100_full = (latest_water_lvl is not None and latest_water_lvl >= 100)
+                is_max_time_exceeded = (motor_run_seconds >= (max_run_min * 60))
+
+                if is_100_full or is_max_time_exceeded:
+                    has_pending_off = DeviceCommand.objects.filter(
+                        device_id__in=["esp32motor", "esp32_motor_01"],
+                        command__icontains="OFF",
+                        is_executed=False
+                    ).exists()
+                    if not has_pending_off:
+                        reason = "[AUTO-SHUTOFF] Tank Full (100%) detected on server! Turned OFF motor." if is_100_full else f"[AUTO-SHUTOFF] Motor reached maximum run time limit ({max_run_min} min)! Turned OFF motor."
+                        DeviceCommand.objects.create(
+                            device_id="esp32motor",
+                            command="MOTOR_OFF"
+                        )
+                        DeviceLog.objects.create(
+                            device_id="SERVER_AUTO",
+                            message=reason
+                        )
+                        print(f"  {reason}")
 
             # Check pending queued commands
             pending_cmd = DeviceCommand.objects.filter(is_executed=False).filter(

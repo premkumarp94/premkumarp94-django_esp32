@@ -31,15 +31,17 @@ const int ANGLE_DEFAULT = 90;
 int angleON             = 45;
 int angleOFF            = 135;
 int holdDurationMs      = 1000; // Configurable hold time in ms before returning to 90 deg (default 1000ms)
+int maxRunMin           = 30;   // Configurable max continuous run limit in minutes (default 30 min)
 
 Servo motorServo;
 Preferences preferences;
 
 // Motor & Telemetry State Tracking
-bool motorRunning     = false;
-int currentAngle      = ANGLE_DEFAULT;
-String motorStatus    = "OFF";
-int currentWaterLevel = 0; // Synced water level from Django server or ESP-NOW
+bool motorRunning          = false;
+unsigned long motorStartTime = 0;   // Timestamp when motor was turned ON
+int currentAngle           = ANGLE_DEFAULT;
+String motorStatus         = "OFF";
+int currentWaterLevel      = 0; // Synced water level from Django server or ESP-NOW
 uint32_t syncIntervalSeconds = 2; // Server synced interval
 
 // Loop timer tracking
@@ -147,14 +149,12 @@ bool connectWiFi() {
   }
 
   Serial.println();
-  Serial.print("[esp32motor] Connecting to WiFi (SSID: ");
-  Serial.print(ssid);
-  Serial.println(")...");
+  Serial.printf("[esp32motor] Primary Home WiFi (SSID: %s)... Attempting connection...\n", ssid);
 
   WiFi.begin(ssid, password);
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 10) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -162,12 +162,12 @@ bool connectWiFi() {
 
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("[esp32motor] WiFi Connected! IP Address: ");
+    Serial.print("[esp32motor] Home WiFi Connected! IP Address: ");
     Serial.println(WiFi.localIP());
     return true;
   }
 
-  Serial.println("[esp32motor] WiFi Connection Failed (Offline ESP-NOW mode active).");
+  Serial.println("[esp32motor] WiFi/Internet Connection Unavailable (ESP-NOW radio fallback active).");
   return false;
 }
 
@@ -264,7 +264,7 @@ bool sendMotorStatusToServer(const String &extraMessage = "") {
     doc["message"] = pendingMsg;
     pendingMsg = "";
   } else {
-    doc["message"] = "esp32motor telemetry sync";
+    doc["message"] = "none";
   }
 
   String body, response;
@@ -299,7 +299,16 @@ bool sendMotorStatusToServer(const String &extraMessage = "") {
       }
     }
 
-    // Sync interval setting from server response
+    // Sync max run limit & interval setting from server response
+    if (respDoc.containsKey("max_run_min")) {
+      int val = respDoc["max_run_min"].as<int>();
+      if (val >= 1 && val <= 1440 && val != maxRunMin) {
+        maxRunMin = val;
+        preferences.putInt("maxRunMin", maxRunMin);
+        Serial.printf("[SERVER SYNC] Synced motor max run limit: %d min\n", maxRunMin);
+      }
+    }
+
     if (respDoc.containsKey("interval_seconds")) {
       uint32_t sSec = respDoc["interval_seconds"].as<uint32_t>();
       if (sSec >= 1 && sSec <= 86400) {
@@ -363,10 +372,20 @@ void updateWaterLevelLEDs() {
 //==================================================
 
 void turnMotorON() {
-  Serial.printf("\n>>> TURNING MOTOR ON >>> Rotating SG90 Servo to %d degrees for %d ms\n", angleON, holdDurationMs);
-  currentAngle = angleON;
-  motorRunning = true;
-  motorStatus  = "ON";
+  if (currentWaterLevel >= 100) {
+    Serial.println("\n[BLOCK MOTOR ON] Cannot turn ON motor because Tank is 100% FULL!");
+    motorRunning = false;
+    motorStatus  = "OFF";
+    preferences.putBool("running", false);
+    preferences.putString("status", "OFF");
+    return;
+  }
+
+  Serial.printf("\n>>> TURNING MOTOR ON >>> Rotating SG90 Servo to %d degrees for %d ms (Max Run Limit: %d min)\n", angleON, holdDurationMs, maxRunMin);
+  currentAngle   = angleON;
+  motorRunning   = true;
+  motorStartTime = millis();
+  motorStatus    = "ON";
 
   // Persist motor state in flash memory
   preferences.putBool("running", true);
@@ -391,9 +410,10 @@ void turnMotorON() {
 
 void turnMotorOFF() {
   Serial.printf("\n>>> TURNING MOTOR OFF >>> Rotating SG90 Servo to %d degrees for %d ms\n", angleOFF, holdDurationMs);
-  currentAngle = angleOFF;
-  motorRunning = false;
-  motorStatus  = "OFF";
+  currentAngle   = angleOFF;
+  motorRunning   = false;
+  motorStartTime = 0;
+  motorStatus    = "OFF";
 
   // Persist motor state in flash memory
   preferences.putBool("running", false);
@@ -439,6 +459,16 @@ void processCommand(const String &cmd) {
       preferences.putInt("holdMs", holdDurationMs);
       Serial.printf("[esp32motor] Updated Return Hold Delay to: %d ms (%.2fs)\n", holdDurationMs, sec);
       sendMotorStatusToServer("updated return delay to " + String(holdDurationMs) + " ms");
+    }
+  } else if (cmd.startsWith("SET_MAX_RUN_MIN:") || cmd.startsWith("MAX_RUN_MIN:")) {
+    String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
+    valStr.trim();
+    int val = valStr.toInt();
+    if (val >= 1 && val <= 1440) {
+      maxRunMin = val;
+      preferences.putInt("maxRunMin", maxRunMin);
+      Serial.printf("[esp32motor] Updated Max Continuous Run Limit: %d min\n", maxRunMin);
+      sendMotorStatusToServer("updated motor max run limit to " + String(maxRunMin) + " min");
     }
   } else if (cmd.startsWith("SET_ON_ANGLE:") || cmd.startsWith("ANGLE_ON:")) {
     String valStr = (colonIndex != -1) ? cmd.substring(colonIndex + 1) : "";
@@ -513,6 +543,7 @@ void setup() {
   angleON        = preferences.getInt("angleON", 45);
   angleOFF       = preferences.getInt("angleOFF", 135);
   holdDurationMs = preferences.getInt("holdMs", 1000);
+  maxRunMin      = preferences.getInt("maxRunMin", 30);
 
   // Configure LED pins as outputs
   pinMode(LED_25_PIN, OUTPUT);
@@ -557,13 +588,44 @@ void loop() {
   // Continuously update LED display (0.5s blink on 25% LED when empty)
   updateWaterLevelLEDs();
 
-  // Sync telemetry and poll server commands every 2 seconds
+  // LOCAL 100% TANK FULL AUTO-SHUTOFF FAILSAFE:
+  // If water level reaches 100% AND motor is running -> TURN OFF MOTOR IMMEDIATELY
+  if (currentWaterLevel >= 100 && motorRunning) {
+    Serial.println("\n[LOOP AUTO-SHUTOFF] Tank 100% FULL detected! Turning OFF motor immediately...");
+    turnMotorOFF();
+  }
+
+  // LOCAL HARDWARE AUTO-SHUTOFF FAILSAFE TIMER:
+  // If motor has been continuously running for >= maxRunMin minutes, turn OFF motor locally!
+  if (motorRunning && motorStartTime > 0) {
+    unsigned long runTimeMs = millis() - motorStartTime;
+    unsigned long limitMs   = (unsigned long)maxRunMin * 60 * 1000;
+    if (runTimeMs >= limitMs) {
+      Serial.printf("\n[LOCAL HARDWARE AUTO-SHUTOFF] Motor continuous run limit (%d min) reached! Turning OFF motor locally...\n", maxRunMin);
+      turnMotorOFF();
+    }
+  }
+
+  // Sync telemetry and poll server commands every 2 seconds when online
   unsigned long now = millis();
   if (now - lastSyncTime >= 2000) {
     lastSyncTime = now;
     if (isOnline) {
-      sendMotorStatusToServer();
+      bool ok = sendMotorStatusToServer();
+      if (!ok) {
+        Serial.println("[INTERNET CHECK] WiFi connected to Home AP, but HTTP server ping failed. Operating in ESP-NOW local radio mode until internet returns.");
+      }
     } else {
+      // Periodically attempt to reconnect to Home WiFi & check if internet is back (every 5 seconds)
+      static unsigned long lastWiFiRetry = 0;
+      if (now - lastWiFiRetry >= 5000) {
+        lastWiFiRetry = now;
+        Serial.println("[OFFLINE MODE] Checking if Home WiFi (TIC_5G-PREM) & Internet are back online...");
+        if (connectWiFi()) {
+          discoverServer();
+          sendMotorStatusToServer("esp32motor reconnected to Home WiFi & Django server");
+        }
+      }
       Serial.println("[OFFLINE MODE] Internet/Router unavailable. Listening for ESP-NOW radio signals from ESP8266 Tank sensor...");
     }
   }

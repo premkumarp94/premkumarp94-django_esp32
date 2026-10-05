@@ -922,27 +922,39 @@
                 </button>
             </div>
 
-            <!-- Servo Angles & Return Delay Configuration -->
+            <!-- Servo Angles, Return Delay & Auto-Shutoff Timer Configuration -->
             <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;">
                 <div style="font-size: 0.78rem; font-weight: 700; color: #38bdf8; text-transform: uppercase;">
-                    Configure SG90 Servo Angles & Return to 90° Delay
+                    Configure SG90 Servo Angles, Return Delay & Max Run Timer
                 </div>
                 <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 100px;">
                         <label for="motor-on-angle-input" style="font-size: 0.75rem; color: var(--text-secondary);">Start Angle (ON):</label>
                         <input type="number" id="motor-on-angle-input" min="0" max="180" value="{{ motor_info.angle_on|default:45 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 100px;">
                         <label for="motor-off-angle-input" style="font-size: 0.75rem; color: var(--text-secondary);">Stop Angle (OFF):</label>
                         <input type="number" id="motor-off-angle-input" min="0" max="180" value="{{ motor_info.angle_off|default:135 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 100px;">
                         <label for="motor-hold-sec-input" style="font-size: 0.75rem; color: var(--text-secondary);">Return Delay (Sec):</label>
                         <input type="number" id="motor-hold-sec-input" min="0.1" max="30" step="0.1" value="{{ motor_info.hold_sec|default:1.0 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px;">
+                        <label for="motor-max-run-input" style="font-size: 0.75rem; color: var(--text-secondary);">Max Run Limit (Min):</label>
+                        <input type="number" id="motor-max-run-input" min="1" max="1440" value="{{ motor_info.max_run_min|default:30 }}" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; color: #fff; padding: 8px 12px; font-size: 0.95rem; width: 100%;">
                     </div>
                     <button onclick="syncMotorAngles()" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 9px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; align-self: flex-end;">
                         Sync Config
                     </button>
+                </div>
+                <!-- Quick Max Run Presets -->
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px;">
+                    <span style="font-size: 0.72rem; color: var(--text-secondary);">Auto OFF Presets:</span>
+                    <button onclick="setMaxRunMin(15)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">15m</button>
+                    <button onclick="setMaxRunMin(30)" style="background: rgba(245, 158, 11, 0.18); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">30m (Default)</button>
+                    <button onclick="setMaxRunMin(45)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">45m</button>
+                    <button onclick="setMaxRunMin(60)" style="background: rgba(255, 255, 255, 0.05); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">60m</button>
                 </div>
             </div>
         </div>
@@ -1017,9 +1029,17 @@
         const onAngle = parseInt(document.getElementById('motor-on-angle-input')?.value || 45, 10);
         const offAngle = parseInt(document.getElementById('motor-off-angle-input')?.value || 135, 10);
         const holdSec = parseFloat(document.getElementById('motor-hold-sec-input')?.value || 1.0);
+        const maxRunMin = parseInt(document.getElementById('motor-max-run-input')?.value || 30, 10);
         
         await sendMotorCommand(`SET_ANGLES:${onAngle},${offAngle}`);
         await sendMotorCommand(`SET_HOLD_SEC:${holdSec}`);
+        await sendMotorCommand(`SET_MAX_RUN_MIN:${maxRunMin}`);
+    }
+
+    async function setMaxRunMin(min) {
+        const input = document.getElementById('motor-max-run-input');
+        if (input) input.value = min;
+        await sendMotorCommand(`SET_MAX_RUN_MIN:${min}`);
     }
 
     async function sendMotorCommand(cmd) {
@@ -1374,10 +1394,11 @@
                                 angleTextEl.textContent = (data.motor_info.servo_angle !== undefined && data.motor_info.servo_angle !== null) ? `${data.motor_info.servo_angle}°` : '90°';
                             }
 
-                            // Sync servo angle & return hold duration input fields if not focused
+                            // Sync servo angle, return hold duration & max run limit input fields if not focused
                             const onAngleIn = document.getElementById('motor-on-angle-input');
                             const offAngleIn = document.getElementById('motor-off-angle-input');
                             const holdSecIn = document.getElementById('motor-hold-sec-input');
+                            const maxRunIn = document.getElementById('motor-max-run-input');
 
                             if (onAngleIn && document.activeElement !== onAngleIn && data.motor_info.angle_on !== undefined) {
                                 onAngleIn.value = data.motor_info.angle_on;
@@ -1387,6 +1408,9 @@
                             }
                             if (holdSecIn && document.activeElement !== holdSecIn && data.motor_info.hold_sec !== undefined) {
                                 holdSecIn.value = data.motor_info.hold_sec;
+                            }
+                            if (maxRunIn && document.activeElement !== maxRunIn && data.motor_info.max_run_min !== undefined) {
+                                maxRunIn.value = data.motor_info.max_run_min;
                             }
 
                             // Dynamic command execution & device acceptance status
@@ -1423,11 +1447,8 @@
                                 const entry = document.createElement('div');
                                 entry.className = 'log-line';
 
-                                let timeStr = log.timestamp || '';
-                                if (timeStr.length > 11) timeStr = timeStr.substring(11);
-
                                 entry.innerHTML = `
-                                    <span class="log-time">[${timeStr}]</span>
+                                    <span class="log-time">[${log.timestamp || ''}]</span>
                                     <span class="log-dev">${log.device_id}</span>
                                     <span class="log-msg">${log.message}</span>
                                 `;

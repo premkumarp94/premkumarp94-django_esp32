@@ -84,6 +84,11 @@ def get_esp32motor_status():
     except ValueError:
         angle_off = 135
 
+    try:
+        max_run_min = int(get_system_setting("motor_max_run_min", "30"))
+    except ValueError:
+        max_run_min = 30
+
     hold_sec = round(hold_ms / 1000.0, 2)
 
     if reading:
@@ -91,6 +96,31 @@ def get_esp32motor_status():
         angle = reading.servo_angle if reading.servo_angle is not None else (angle_on if is_on else (angle_off if str(reading.motor_status).upper() == "OFF" else 90))
         status_label = "Motor ON" if is_on else "Motor OFF"
         status_text = f"{status_label} (Servo: {angle}°)"
+
+        motor_run_seconds = 0
+        if is_on:
+            last_off = TelemetryReading.objects.filter(
+                device_id__icontains="motor",
+                motor_running=False,
+                timestamp__lt=reading.timestamp
+            ).order_by('-timestamp').first()
+
+            if last_off:
+                start_reading = TelemetryReading.objects.filter(
+                    device_id__icontains="motor",
+                    motor_running=True,
+                    timestamp__gt=last_off.timestamp
+                ).order_by('timestamp').first()
+                start_dt = start_reading.timestamp if start_reading else reading.timestamp
+            else:
+                earliest_on = TelemetryReading.objects.filter(
+                    device_id__icontains="motor",
+                    motor_running=True
+                ).order_by('timestamp').first()
+                start_dt = earliest_on.timestamp if earliest_on else reading.timestamp
+
+            motor_run_seconds = int(max(0, (timezone.now() - start_dt).total_seconds()))
+
         return {
             "has_data": True,
             "motor_running": is_on,
@@ -101,6 +131,10 @@ def get_esp32motor_status():
             "angle_off": angle_off,
             "hold_ms": hold_ms,
             "hold_sec": hold_sec,
+            "max_run_min": max_run_min,
+            "max_run_sec": max_run_min * 60,
+            "motor_run_seconds": motor_run_seconds,
+            "motor_run_text": format_duration(motor_run_seconds),
             "device_id": reading.device_id,
             "timestamp": format_ist(reading.timestamp),
             "has_pending_command": pending_cmd is not None,
@@ -117,6 +151,10 @@ def get_esp32motor_status():
         "angle_off": angle_off,
         "hold_ms": hold_ms,
         "hold_sec": hold_sec,
+        "max_run_min": max_run_min,
+        "max_run_sec": max_run_min * 60,
+        "motor_run_seconds": 0,
+        "motor_run_text": "0s",
         "device_id": "esp32motor",
         "timestamp": None,
         "has_pending_command": pending_cmd is not None,

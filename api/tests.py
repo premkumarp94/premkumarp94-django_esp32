@@ -124,4 +124,21 @@ class TelemetryAndMotorTestCase(TestCase):
         reading2 = TelemetryReading.objects.filter(device_id="esp8266_device_01").order_by('-timestamp').first()
         self.assertEqual(reading2.probe_read_ago_sec, 0)
 
+    def test_max_run_min_setting_and_auto_shutoff(self):
+        # 1. Default max run min should be 30
+        self.assertEqual(get_system_setting("motor_max_run_min", "30"), "30")
+
+        # 2. Update max_run_min to 15 minutes via command
+        resp = self.client.post(
+            '/api/command/',
+            data=json.dumps({"device_id": "esp32motor", "command": "SET_MAX_RUN_MIN:15"}),
+            content_type='application/json'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(get_system_setting("motor_max_run_min"), "15")
+
+        status_resp = self.client.get('/api/status/?format=json')
+        self.assertEqual(status_resp.json()["motor_info"]["max_run_min"], 15)
+
+
 

@@ -106,6 +106,21 @@ class TelemetryAndMotorTestCase(TestCase):
         self.assertEqual(dev_data["probe_read_text"], "Just now")
         self.assertEqual(dev_data["last_seen_text"], "Just now")
 
+        # 2. Post 10s routine ping WITHOUT probe values
+        self.client.post(
+            '/api/telemetry/',
+            data=json.dumps({
+                "id": "esp8266_device_01",
+                "message": "none"
+            }),
+            content_type='application/json'
+        )
+
+        status_resp2 = self.client.get('/api/status/?format=json')
+        dev_data2 = status_resp2.json()["devices"]["esp8266_device_01"]
+        self.assertEqual(dev_data2["last_seen_text"], "Just now")
+        self.assertIsNotNone(dev_data2["probe_read_ago_sec"])
+
     def test_max_run_min_setting_and_auto_shutoff(self):
         # 1. Default max run min should be 30
         self.assertEqual(get_system_setting("motor_max_run_min", "30"), "30")

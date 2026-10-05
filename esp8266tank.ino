@@ -200,7 +200,10 @@ bool connectWiFi() {
 // WATER LEVEL READ
 //==================================================
 
+bool isFreshProbeRead = true;
+
 int readWaterLevel() {
+  isFreshProbeRead = true;
   // Dynamic discharge delay based on water level:
   // 0%, 25%, 50% -> 20ms delay | 75%, 100% -> 50ms delay | default -> 30ms delay
   int dischargeDelay = 30;
@@ -398,25 +401,24 @@ bool discoverServer() {
 // BUILD TELEMETRY JSON
 //==================================================
 
-String buildTelemetry(const String &ack, const String &message, int waterLevel) {
+String buildTelemetry(const String &ack, const String &message, int waterLevel, bool includeProbes = true) {
   StaticJsonDocument<512> doc;
 
   doc["id"] = DEVICE_ID;
 
-  JsonObject sensor = doc.createNestedObject("sensor values");
-
-  sensor["water_level"] = waterLevel;
-  sensor["probe_25"] = probe25Detected;
-  sensor["probe_50"] = probe50Detected;
-  sensor["probe_75"] = probe75Detected;
-  sensor["probe_100"] = probe100Detected;
+  if (includeProbes) {
+    JsonObject sensor = doc.createNestedObject("sensor values");
+    sensor["water_level"] = waterLevel;
+    sensor["probe_25"] = probe25Detected;
+    sensor["probe_50"] = probe50Detected;
+    sensor["probe_75"] = probe75Detected;
+    sensor["probe_100"] = probe100Detected;
+  }
 
   doc["ack"] = ack;
-
   doc["message"] = message;
 
   String body;
-
   serializeJson(doc, body);
 
   return body;
@@ -434,13 +436,13 @@ bool sendTelemetry(int waterLevel) {
   }
 
   String ack = "dummy_ack";
-
   String message = pendingDeviceMsg;
+  bool includeProbes = isFreshProbeRead;
 
-  String body = buildTelemetry(ack, message, waterLevel);
+  String body = buildTelemetry(ack, message, waterLevel, includeProbes);
 
   Serial.println();
-  Serial.println("Sending online telemetry (10s Hardcoded Sync Timer):");
+  Serial.printf("Sending online telemetry (10s Hardcoded Sync Timer | Including Fresh Probes: %s):\n", includeProbes ? "YES" : "NO");
 
   Serial.println(body);
 
@@ -450,10 +452,12 @@ bool sendTelemetry(int waterLevel) {
 
   if (!success) {
     Serial.println("Active server failed.");
-
     activeServer = -1;
-
     return false;
+  }
+
+  if (includeProbes) {
+    isFreshProbeRead = false;
   }
 
   // Clear message only after successful transmission

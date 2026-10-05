@@ -58,10 +58,8 @@ def telemetry(request):
             ack = data.get("ack", "none")
             message = data.get("message", "none")
             
-            # Save telemetry reading to database
-            if (temperature is not None or humidity is not None or water_level is not None or 
-                probe_25 is not None or motor_status is not None or motor_running is not None or
-                "motor" in device_id.lower()):
+            # Save telemetry reading to database for any valid device_id POST
+            if device_id:
                 
                 TelemetryReading.objects.create(
                     device_id=device_id,
